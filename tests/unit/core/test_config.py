@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+
 from regresslab.core.config import ExperimentSpec
 
 
@@ -22,17 +23,13 @@ def test_valid_config(valid_config):
 
 
 def test_explicit_concurrency(valid_config):
-    spec = ExperimentSpec.model_validate(
-        {**valid_config, "concurrency": 5}
-    )
+    spec = ExperimentSpec.model_validate({**valid_config, "concurrency": 5})
 
     assert spec.concurrency == 5
 
 
 def test_strips_name_whitespace(valid_config):
-    spec = ExperimentSpec.model_validate(
-        {**valid_config, "name": "  health-check \t"}
-    )
+    spec = ExperimentSpec.model_validate({**valid_config, "name": "  health-check \t"})
 
     assert spec.name == "health-check"
 
@@ -46,16 +43,12 @@ def test_rejects_empty_name(valid_config, name):
 
 
 def test_accepts_https(valid_config):
-    spec = ExperimentSpec.model_validate(
-        {**valid_config, "url": "https://example.com/health"}
-    )
+    spec = ExperimentSpec.model_validate({**valid_config, "url": "https://example.com/health"})
 
     assert str(spec.url) == "https://example.com/health"
 
 
-@pytest.mark.parametrize(
-    "url", ["not-a-url", "ftp://example.com", "/health"]
-)
+@pytest.mark.parametrize("url", ["not-a-url", "ftp://example.com", "/health"])
 def test_rejects_invalid_url(valid_config, url):
     with pytest.raises(ValidationError) as exc:
         ExperimentSpec.model_validate({**valid_config, "url": url})
@@ -86,9 +79,7 @@ def test_requires_mandatory_fields(valid_config, field):
 
 def test_rejects_unknown_fields(valid_config):
     with pytest.raises(ValidationError) as exc:
-        ExperimentSpec.model_validate(
-            {**valid_config, "concurency": 5}
-        )
+        ExperimentSpec.model_validate({**valid_config, "concurency": 5})
 
     error = exc.value.errors()[0]
     assert error["loc"] == ("concurency",)

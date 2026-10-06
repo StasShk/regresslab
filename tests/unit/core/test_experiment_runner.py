@@ -5,7 +5,7 @@ import pytest
 
 from regresslab.core import http_runner
 from regresslab.core.config import ExperimentSpec
-from regresslab.core.models import MeasurementStatus
+from regresslab.core.models import Measurement, MeasurementStatus
 
 
 def make_spec(requests: int, concurrency: int) -> ExperimentSpec:
@@ -108,6 +108,43 @@ def test_limits_concurrency(monkeypatch, requests, concurrency):
     asyncio.run(asyncio.wait_for(scenario(), timeout=3.0))
 
 
+@pytest.mark.parametrize("cancel_all", [False, True])
+def test_worker_cancellation_aborts_run(monkeypatch, cancel_all):
+    async def scenario():
+        active = 0
+        calls = 0
+        workers_started = asyncio.Event()
+        block = asyncio.Event()
+
+        async def handler(request):
+            nonlocal active, calls
+            calls += 1
+            call_number = calls
+            active += 1
+            if active == 2:
+                workers_started.set()
+
+            try:
+                await workers_started.wait()
+                if cancel_all or call_number == 1:
+                    raise asyncio.CancelledError
+                await block.wait()
+                return httpx.Response(200)
+            finally:
+                active -= 1
+
+        client = install_client(monkeypatch, handler)
+
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(http_runner.run_experiment(make_spec(10, 2)), timeout=1.0)
+
+        assert calls == 2
+        assert active == 0
+        assert client.is_closed
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=3.0))
+
+
 def test_uses_total_elapsed_time(monkeypatch):
     client = install_client(
         monkeypatch,
@@ -126,6 +163,26 @@ def test_uses_total_elapsed_time(monkeypatch):
     assert result.latencies_ms == pytest.approx((100.0, 100.0))
     assert result.elapsed_seconds == 1.0
     assert result.throughput_rps == 2.0
+    assert client.is_closed
+
+
+def test_rejects_incomplete_results(monkeypatch):
+    async def incomplete_measurement(url, *, client):
+        return Measurement(
+            latencies_ms=(),
+            request_count=0,
+            successful_requests=0,
+            failed_requests=0,
+            elapsed_seconds=1.0,
+            status=MeasurementStatus.SUCCESS,
+        )
+
+    client = install_client(monkeypatch, lambda request: httpx.Response(200))
+    monkeypatch.setattr(http_runner, "measure_http_get", incomplete_measurement)
+
+    with pytest.raises(RuntimeError, match="completed 0 of 2 requests"):
+        asyncio.run(http_runner.run_experiment(make_spec(2, 1)))
+
     assert client.is_closed
 
 

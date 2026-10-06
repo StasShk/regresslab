@@ -71,14 +71,22 @@ async def run_experiment(spec: ExperimentSpec) -> Measurement:
         started = perf_counter()
 
         async with asyncio.TaskGroup() as group:
-            for _ in range(worker_count):
-                group.create_task(worker())
+            pending = {group.create_task(worker()) for _ in range(worker_count)}
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                # TaskGroup does not propagate cancellation of an individual worker.
+                if any(task.cancelled() for task in done):
+                    raise asyncio.CancelledError("Experiment worker was cancelled")
 
         elapsed = perf_counter() - started
 
+    completed_requests = successful_requests + failed_requests
+    if completed_requests != spec.requests:
+        raise RuntimeError(f"Experiment completed {completed_requests} of {spec.requests} requests")
+
     return Measurement(
         latencies_ms=tuple(latencies_ms),
-        request_count=successful_requests + failed_requests,
+        request_count=completed_requests,
         successful_requests=successful_requests,
         failed_requests=failed_requests,
         elapsed_seconds=elapsed,

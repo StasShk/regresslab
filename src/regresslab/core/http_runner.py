@@ -4,14 +4,14 @@ from time import perf_counter
 import httpx
 
 from regresslab.core.config import ExperimentSpec
-from regresslab.core.models import Measurement, MeasurementStatus
+from regresslab.core.models import Measurement, RequestResult
 
 
 async def measure_http_get(
     url: str,
     *,
     client: httpx.AsyncClient,
-) -> Measurement:
+) -> RequestResult:
     failure_detail: str | None = None
     started = perf_counter()
 
@@ -26,13 +26,9 @@ async def measure_http_get(
     elapsed = perf_counter() - started
     succeeded = failure_detail is None
 
-    return Measurement(
-        latencies_ms=(elapsed * 1000,) if succeeded else (),
-        request_count=1,
-        successful_requests=1 if succeeded else 0,
-        failed_requests=0 if succeeded else 1,
-        elapsed_seconds=elapsed,
-        status=(MeasurementStatus.SUCCESS if succeeded else MeasurementStatus.FAILED),
+    return RequestResult(
+        latency_ms=elapsed * 1000 if succeeded else None,
+        succeeded=succeeded,
         failure_detail=failure_detail,
     )
 
@@ -61,12 +57,15 @@ async def run_experiment(spec: ExperimentSpec) -> Measurement:
             for _ in request_numbers:
                 result = await measure_http_get(url, client=client)
 
-                latencies_ms.extend(result.latencies_ms)
-                successful_requests += result.successful_requests
-                failed_requests += result.failed_requests
-
-                if first_failure is None and result.failure_detail is not None:
-                    first_failure = result.failure_detail
+                if result.succeeded:
+                    if result.latency_ms is None:
+                        raise RuntimeError("Successful request result is missing latency")
+                    latencies_ms.append(result.latency_ms)
+                    successful_requests += 1
+                else:
+                    failed_requests += 1
+                    if first_failure is None and result.failure_detail is not None:
+                        first_failure = result.failure_detail
 
         started = perf_counter()
 
@@ -80,17 +79,12 @@ async def run_experiment(spec: ExperimentSpec) -> Measurement:
 
         elapsed = perf_counter() - started
 
-    completed_requests = successful_requests + failed_requests
-    if completed_requests != spec.requests:
-        raise RuntimeError(f"Experiment completed {completed_requests} of {spec.requests} requests")
-
     return Measurement(
         latencies_ms=tuple(latencies_ms),
-        request_count=completed_requests,
+        request_count=spec.requests,
         successful_requests=successful_requests,
         failed_requests=failed_requests,
         elapsed_seconds=elapsed,
-        status=MeasurementStatus.SUCCESS,
         failure_detail=(
             f"{failed_requests} requests failed; first error: {first_failure}"
             if failed_requests

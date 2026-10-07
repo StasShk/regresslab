@@ -1,4 +1,3 @@
-from enum import StrEnum
 from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -7,9 +6,22 @@ NonNegativeFloat = Annotated[float, Field(ge=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 
 
-class MeasurementStatus(StrEnum):
-    SUCCESS = "success"
-    FAILED = "failed"
+class RequestResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    latency_ms: NonNegativeFloat | None
+    succeeded: bool
+    failure_detail: str | None = None
+
+    @model_validator(mode="after")
+    def validate_result(self) -> Self:
+        if self.succeeded and self.latency_ms is None:
+            raise ValueError("successful request requires latency_ms")
+        if not self.succeeded and self.latency_ms is not None:
+            raise ValueError("failed request must not have latency_ms")
+        if self.succeeded and self.failure_detail is not None:
+            raise ValueError("successful request must not have failure_detail")
+        return self
 
 
 class Measurement(BaseModel):
@@ -20,7 +32,6 @@ class Measurement(BaseModel):
     successful_requests: NonNegativeInt
     failed_requests: NonNegativeInt
     elapsed_seconds: NonNegativeFloat
-    status: MeasurementStatus
     failure_detail: str | None = None
 
     @model_validator(mode="after")
@@ -28,13 +39,15 @@ class Measurement(BaseModel):
         if self.request_count != self.successful_requests + self.failed_requests:
             raise ValueError("request_count must equal successful_requests + failed_requests")
 
-        if self.status is MeasurementStatus.SUCCESS and self.elapsed_seconds == 0:
-            raise ValueError("successful measurement requires elapsed_seconds > 0")
+        if len(self.latencies_ms) != self.successful_requests:
+            raise ValueError("latencies_ms must contain one entry per successful request")
+
+        if self.request_count > 0 and self.elapsed_seconds == 0:
+            raise ValueError("measurement with requests requires elapsed_seconds > 0")
         return self
 
     @property
     def throughput_rps(self) -> float:
-        if self.status is MeasurementStatus.FAILED:
+        if self.elapsed_seconds == 0:
             return 0.0
-
         return self.successful_requests / self.elapsed_seconds

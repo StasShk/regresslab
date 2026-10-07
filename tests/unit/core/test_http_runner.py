@@ -5,15 +5,15 @@ import httpx
 import pytest
 
 from regresslab.core.http_runner import measure_http_get
-from regresslab.core.models import Measurement, MeasurementStatus
+from regresslab.core.models import RequestResult
 
 URL = "http://localhost:8000/health"
 
 
-def run_measurement(
+def run_request(
     handler: Callable[[httpx.Request], httpx.Response],
-) -> Measurement:
-    async def run() -> Measurement:
+) -> RequestResult:
+    async def run() -> RequestResult:
         transport = httpx.MockTransport(handler)
         async with httpx.AsyncClient(
             transport=transport,
@@ -40,15 +40,10 @@ def test_successful_request(fixed_clock, status_code: int):
         assert str(request.url) == URL
         return httpx.Response(status_code)
 
-    result = run_measurement(handler)
+    result = run_request(handler)
 
-    assert result.status is MeasurementStatus.SUCCESS
-    assert result.request_count == 1
-    assert result.successful_requests == 1
-    assert result.failed_requests == 0
-    assert result.latencies_ms == (250.0,)
-    assert result.elapsed_seconds == 0.25
-    assert result.throughput_rps == 4.0
+    assert result.succeeded is True
+    assert result.latency_ms == 250.0
     assert result.failure_detail is None
 
 
@@ -60,14 +55,10 @@ def test_unsuccessful_http_status(fixed_clock, status_code: int):
             headers={"Location": "/other"},
         )
 
-    result = run_measurement(handler)
+    result = run_request(handler)
 
-    assert result.status is MeasurementStatus.FAILED
-    assert result.request_count == 1
-    assert result.successful_requests == 0
-    assert result.failed_requests == 1
-    assert result.latencies_ms == ()
-    assert result.elapsed_seconds == 0.25
+    assert result.succeeded is False
+    assert result.latency_ms is None
     assert result.failure_detail == f"HTTP {status_code}"
 
 
@@ -82,14 +73,10 @@ def test_network_failure(
     def handler(request: httpx.Request) -> httpx.Response:
         raise error_type("simulated failure", request=request)
 
-    result = run_measurement(handler)
+    result = run_request(handler)
 
-    assert result.status is MeasurementStatus.FAILED
-    assert result.request_count == 1
-    assert result.successful_requests == 0
-    assert result.failed_requests == 1
-    assert result.latencies_ms == ()
-    assert result.elapsed_seconds == 0.25
+    assert result.succeeded is False
+    assert result.latency_ms is None
     assert result.failure_detail is not None
     assert result.failure_detail.startswith(error_type.__name__)
 
@@ -99,4 +86,4 @@ def test_cancellation_propagates():
         raise asyncio.CancelledError
 
     with pytest.raises(asyncio.CancelledError):
-        run_measurement(handler)
+        run_request(handler)

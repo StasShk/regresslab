@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from regresslab.core.metrics import calculate_metrics
-from regresslab.core.models import Measurement, MeasurementStatus
+from regresslab.core.models import Measurement
 
 
 def make_measurement(
@@ -16,7 +16,6 @@ def make_measurement(
         successful_requests=len(latencies),
         failed_requests=failed,
         elapsed_seconds=elapsed,
-        status=MeasurementStatus.SUCCESS,
     )
 
 
@@ -72,16 +71,6 @@ def test_no_requests():
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        (
-            "status",
-            MeasurementStatus.FAILED,
-            "incomplete or failed run",
-        ),
-        (
-            "latencies_ms",
-            (),
-            "exactly one latency",
-        ),
         (
             "latencies_ms",
             (float("inf"),),

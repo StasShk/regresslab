@@ -3,7 +3,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from regresslab.core.models import Measurement, MeasurementStatus, NonNegativeFloat
+from regresslab.core.models import Measurement, NonNegativeFloat
 
 
 class BenchmarkMetrics(BaseModel):
@@ -18,12 +18,6 @@ class BenchmarkMetrics(BaseModel):
 
 def calculate_metrics(measurement: Measurement) -> BenchmarkMetrics:
     """Calculate metrics using nearest-rank percentiles of successful requests."""
-    if measurement.status is not MeasurementStatus.SUCCESS:
-        raise ValueError("Cannot calculate metrics for an incomplete or failed run")
-
-    if len(measurement.latencies_ms) != measurement.successful_requests:
-        raise ValueError("Each successful request must have exactly one latency")
-
     if not isfinite(measurement.elapsed_seconds):
         raise ValueError("Elapsed time must be finite")
 

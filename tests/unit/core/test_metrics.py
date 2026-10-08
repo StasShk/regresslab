@@ -29,9 +29,19 @@ def test_calculates_known_metrics():
     assert metrics.p50_ms == 100.0
     assert metrics.p95_ms == 190.0
     assert metrics.p99_ms == 200.0
-    assert metrics.throughput_rps == 10.0
+    assert metrics.successful_throughput_rps == 10.0
     assert metrics.error_rate == pytest.approx(0.2)
     assert measurement.latencies_ms == latencies
+
+
+def test_successful_throughput_excludes_failed_requests():
+    measurement = make_measurement((10.0,) * 50, failed=50, elapsed=1.0)
+
+    metrics = calculate_metrics(measurement)
+
+    assert measurement.successful_throughput_rps == 50.0
+    assert metrics.successful_throughput_rps == 50.0
+    assert metrics.error_rate == 0.5
 
 
 @pytest.mark.parametrize(
@@ -54,7 +64,7 @@ def test_all_requests_failed():
     assert metrics.p50_ms is None
     assert metrics.p95_ms is None
     assert metrics.p99_ms is None
-    assert metrics.throughput_rps == 0.0
+    assert metrics.successful_throughput_rps == 0.0
     assert metrics.error_rate == 1.0
 
 
@@ -64,7 +74,7 @@ def test_no_requests():
     assert metrics.p50_ms is None
     assert metrics.p95_ms is None
     assert metrics.p99_ms is None
-    assert metrics.throughput_rps is None
+    assert metrics.successful_throughput_rps is None
     assert metrics.error_rate is None
 
 

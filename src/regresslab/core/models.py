@@ -47,7 +47,8 @@ class Measurement(BaseModel):
         return self
 
     @property
-    def throughput_rps(self) -> float:
+    def successful_throughput_rps(self) -> float:
+        """Successful requests per second, excluding failed requests."""
         if self.elapsed_seconds == 0:
             return 0.0
         return self.successful_requests / self.elapsed_seconds

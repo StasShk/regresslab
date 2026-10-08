@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from regresslab.core.models import Measurement, RequestResult
 
 
-def test_measurement_calculates_throughput() -> None:
+def test_measurement_calculates_successful_throughput() -> None:
     measurement = Measurement(
         latencies_ms=(10.0, 12.0, 11.0),
         request_count=5,
@@ -13,7 +13,7 @@ def test_measurement_calculates_throughput() -> None:
         elapsed_seconds=2.0,
     )
 
-    assert measurement.throughput_rps == 1.5
+    assert measurement.successful_throughput_rps == 1.5
 
 
 def test_measurement_rejects_negative_latency() -> None:
@@ -98,7 +98,7 @@ def test_empty_measurement_can_have_zero_elapsed_time() -> None:
         elapsed_seconds=0.0,
     )
 
-    assert measurement.throughput_rps == 0.0
+    assert measurement.successful_throughput_rps == 0.0
 
 
 def test_measurement_is_immutable() -> None:

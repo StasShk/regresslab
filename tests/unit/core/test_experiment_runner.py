@@ -55,7 +55,9 @@ def test_aggregates_results(monkeypatch, statuses, expected_successes):
     assert result.failed_requests == len(statuses) - expected_successes
     assert len(result.latencies_ms) == expected_successes
     assert result.elapsed_seconds > 0
-    assert result.throughput_rps == pytest.approx(expected_successes / result.elapsed_seconds)
+    assert result.successful_throughput_rps == pytest.approx(
+        expected_successes / result.elapsed_seconds
+    )
     assert (result.failure_detail is not None) == (result.failed_requests > 0)
     assert client.is_closed
 
@@ -160,7 +162,7 @@ def test_uses_total_elapsed_time(monkeypatch):
 
     assert result.latencies_ms == pytest.approx((100.0, 100.0))
     assert result.elapsed_seconds == 1.0
-    assert result.throughput_rps == 2.0
+    assert result.successful_throughput_rps == 2.0
     assert client.is_closed
 
 

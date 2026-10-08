@@ -12,7 +12,9 @@ class BenchmarkMetrics(BaseModel):
     p50_ms: NonNegativeFloat | None
     p95_ms: NonNegativeFloat | None
     p99_ms: NonNegativeFloat | None
-    throughput_rps: NonNegativeFloat | None
+    successful_throughput_rps: NonNegativeFloat | None = Field(
+        description="Successful requests per second; None when no requests were run."
+    )
     error_rate: Annotated[float, Field(ge=0, le=1)] | None
 
 
@@ -38,9 +40,7 @@ def calculate_metrics(measurement: Measurement) -> BenchmarkMetrics:
         p50_ms=percentile(50),
         p95_ms=percentile(95),
         p99_ms=percentile(99),
-        throughput_rps=(
-            measurement.successful_requests / measurement.elapsed_seconds if has_requests else None
-        ),
+        successful_throughput_rps=(measurement.successful_throughput_rps if has_requests else None),
         error_rate=(
             measurement.failed_requests / measurement.request_count if has_requests else None
         ),

@@ -98,6 +98,63 @@ def test_exact_threshold_is_not_a_regression(
 @pytest.mark.parametrize(
     ("before", "after", "field"),
     [
+        (metrics(p95=0.3), metrics(p95=0.33), "p95_latency_ms"),
+        (metrics(throughput=0.1), metrics(throughput=0.09), "successful_throughput_rps"),
+        (metrics(error_rate=0.29), metrics(error_rate=0.30), "error_rate"),
+    ],
+)
+def test_floating_point_rounding_at_threshold_is_not_regression(
+    thresholds: RegressionThresholds,
+    before: BenchmarkMetrics,
+    after: BenchmarkMetrics,
+    field: str,
+) -> None:
+    result = compare_metrics(before, after, thresholds)
+    assert getattr(result, field).status is ComparisonStatus.PASS
+    assert result.status is ComparisonStatus.PASS
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "field"),
+    [
+        (metrics(p95=0.3), metrics(p95=0.330000001), "p95_latency_ms"),
+        (metrics(throughput=0.1), metrics(throughput=0.089999999), "successful_throughput_rps"),
+        (metrics(error_rate=0.29), metrics(error_rate=0.300000001), "error_rate"),
+    ],
+)
+def test_small_real_change_beyond_threshold_is_regression(
+    thresholds: RegressionThresholds,
+    before: BenchmarkMetrics,
+    after: BenchmarkMetrics,
+    field: str,
+) -> None:
+    result = compare_metrics(before, after, thresholds)
+    assert getattr(result, field).status is ComparisonStatus.REGRESSION
+    assert result.status is ComparisonStatus.REGRESSION
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "field"),
+    [
+        (metrics(p95=100), metrics(p95=100.000001), "p95_latency_ms"),
+        (metrics(throughput=100), metrics(throughput=99.999999), "successful_throughput_rps"),
+        (metrics(error_rate=0.2), metrics(error_rate=0.20000001), "error_rate"),
+    ],
+)
+def test_zero_threshold_detects_small_worsening(
+    before: BenchmarkMetrics,
+    after: BenchmarkMetrics,
+    field: str,
+) -> None:
+    thresholds = RegressionThresholds(p95_latency_pct=0, throughput_pct=0, error_rate_points=0)
+    result = compare_metrics(before, after, thresholds)
+    assert getattr(result, field).status is ComparisonStatus.REGRESSION
+    assert result.status is ComparisonStatus.REGRESSION
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "field"),
+    [
         (metrics(p95=100), metrics(p95=110.1), "p95_latency_ms"),
         (metrics(throughput=100), metrics(throughput=89.9), "successful_throughput_rps"),
         (metrics(error_rate=0.02), metrics(error_rate=0.031), "error_rate"),

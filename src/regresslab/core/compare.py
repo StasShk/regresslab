@@ -5,7 +5,7 @@ absolute percentage points (e.g. 1 means an increase from 2% to over 3%).
 """
 
 from enum import StrEnum
-from math import isfinite
+from math import isclose, isfinite
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -58,6 +58,14 @@ class ComparisonResult(BaseModel):
     status: ComparisonStatus
 
 
+def _exceeds_threshold(worsening: float, threshold: float) -> bool:
+    """Ignore floating-point rounding at a threshold, not real worsening.
+
+    No absolute tolerance: a zero threshold still detects tiny regressions.
+    """
+    return worsening > threshold and not isclose(worsening, threshold, rel_tol=1e-12, abs_tol=0.0)
+
+
 def _percentage_comparison(
     baseline: float | None,
     candidate: float | None,
@@ -105,10 +113,8 @@ def _percentage_comparison(
             reason="Percentage change is not finite",
         )
 
-    if higher_is_worse:
-        is_regression = change_pct > threshold_pct
-    else:
-        is_regression = change_pct < -threshold_pct
+    worsening_pct = change_pct if higher_is_worse else -change_pct
+    is_regression = _exceeds_threshold(worsening_pct, threshold_pct)
     return MetricComparison(
         baseline=baseline,
         candidate=candidate,
@@ -137,7 +143,7 @@ def _error_rate_comparison(
         change_points=change_points,
         status=(
             ComparisonStatus.REGRESSION
-            if change_points > threshold_points
+            if _exceeds_threshold(change_points, threshold_points)
             else ComparisonStatus.PASS
         ),
     )

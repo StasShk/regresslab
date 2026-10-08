@@ -18,6 +18,9 @@ dependencies = [
     "pyyaml>=6.0.3",
 ]
 
+[project.scripts]
+regresslab = "regresslab.cli:main"
+
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"

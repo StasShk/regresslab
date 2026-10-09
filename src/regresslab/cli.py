@@ -66,8 +66,8 @@ def _save_result(
     path.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
-def _load_saved_metrics(path: Path) -> BenchmarkMetrics:
-    """Load the metrics from a version-1 JSON file produced by ``run --output``."""
+def _load_saved_result(path: Path) -> tuple[ExperimentSpec, BenchmarkMetrics]:
+    """Load experiment settings and metrics from a saved benchmark result."""
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -80,9 +80,39 @@ def _load_saved_metrics(path: Path) -> BenchmarkMetrics:
     if not isinstance(document.get("metrics"), dict):
         raise TypeError(f"{path}: missing or invalid metrics object")
     try:
-        return BenchmarkMetrics.model_validate(document["metrics"])
+        metrics = BenchmarkMetrics.model_validate(document["metrics"])
     except ValidationError as exc:
         raise ValueError(f"{path}: invalid metrics: {exc}") from exc
+
+    if not isinstance(document.get("experiment"), dict):
+        raise TypeError(f"{path}: missing or invalid experiment object")
+    try:
+        experiment = ExperimentSpec.model_validate(document["experiment"])
+    except ValidationError as exc:
+        raise ValueError(f"{path}: invalid experiment: {exc}") from exc
+
+    return experiment, metrics
+
+
+def _validate_experiment_compatibility(
+    baseline: ExperimentSpec,
+    candidate: ExperimentSpec,
+) -> None:
+    """Require equivalent workloads, while allowing different hosts and ports."""
+    checks = (
+        ("name", baseline.name, candidate.name),
+        ("URL scheme", baseline.url.scheme, candidate.url.scheme),
+        ("URL path", baseline.url.path, candidate.url.path),
+        ("URL query", baseline.url.query, candidate.url.query),
+        ("requests", baseline.requests, candidate.requests),
+        ("concurrency", baseline.concurrency, candidate.concurrency),
+    )
+    for field, before, after in checks:
+        if before != after:
+            raise ValueError(
+                f"incompatible experiments: {field} differs "
+                f"(baseline={before!r}, candidate={after!r})"
+            )
 
 
 def _format_change(comparison: MetricComparison, *, points: bool = False) -> str:
@@ -147,9 +177,10 @@ def _compare_saved_results(args: argparse.Namespace) -> int:
             throughput_pct=args.throughput_pct,
             error_rate_points=args.error_rate_points,
         )
-        baseline = _load_saved_metrics(args.baseline)
-        candidate = _load_saved_metrics(args.candidate)
-        result = compare_metrics(baseline, candidate, thresholds)
+        baseline_spec, baseline_metrics = _load_saved_result(args.baseline)
+        candidate_spec, candidate_metrics = _load_saved_result(args.candidate)
+        _validate_experiment_compatibility(baseline_spec, candidate_spec)
+        result = compare_metrics(baseline_metrics, candidate_metrics, thresholds)
     except (OSError, TypeError, ValueError) as exc:
         print(f"regresslab: {exc}", file=sys.stderr)
         return 2

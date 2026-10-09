@@ -17,6 +17,7 @@ def write_result(
     p95: float | None = 35.2,
     throughput: float | None = 100.0,
     error_rate: float | None = 0.02,
+    experiment: ExperimentSpec | None = None,
 ) -> Path:
     values = BenchmarkMetrics(
         p50_ms=p95,
@@ -25,8 +26,18 @@ def write_result(
         successful_throughput_rps=throughput,
         error_rate=error_rate,
     )
+    if experiment is None:
+        experiment = ExperimentSpec(
+            name="sample", url="http://localhost:8000/health", requests=100, concurrency=5
+        )
     path.write_text(
-        json.dumps({"schema_version": 1, "metrics": values.model_dump(mode="json")}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "experiment": experiment.model_dump(mode="json"),
+                "metrics": values.model_dump(mode="json"),
+            }
+        ),
         encoding="utf-8",
     )
     return path
@@ -202,3 +213,82 @@ def test_clear_regression_takes_precedence_over_missing_p95(
     output = capsys.readouterr().out
     assert "INCONCLUSIVE" in output
     assert "Overall: REGRESSION" in output
+
+
+@pytest.mark.parametrize(
+    ("field", "changed"),
+    [
+        ("name", {"name": "other-experiment"}),
+        ("URL scheme", {"url": "https://localhost:8000/health"}),
+        ("URL path", {"url": "http://localhost:8000/other"}),
+        ("URL query", {"url": "http://localhost:8000/health?version=2"}),
+        ("requests", {"requests": 101}),
+        ("concurrency", {"concurrency": 10}),
+    ],
+)
+def test_rejects_incompatible_experiments(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    field: str,
+    changed: dict[str, object],
+) -> None:
+    spec = ExperimentSpec(
+        name="sample", url="http://localhost:8000/health", requests=100, concurrency=5
+    )
+    candidate_spec = ExperimentSpec.model_validate({**spec.model_dump(mode="json"), **changed})
+    baseline = write_result(tmp_path / "baseline.json", experiment=spec)
+    candidate = write_result(tmp_path / "candidate.json", experiment=candidate_spec)
+
+    assert compare_files(baseline, candidate) == 2
+    captured = capsys.readouterr()
+    assert f"incompatible experiments: {field} differs" in captured.err
+    assert "Overall:" not in captured.out
+
+
+def test_allows_different_hosts_and_ports(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_spec = ExperimentSpec(
+        name="sample", url="http://127.0.0.1:8000/health?mode=smoke", requests=50, concurrency=3
+    )
+    candidate_spec = ExperimentSpec(
+        name="sample",
+        url="http://api-candidate.example:9000/health?mode=smoke",
+        requests=50,
+        concurrency=3,
+    )
+    baseline = write_result(tmp_path / "baseline.json", experiment=baseline_spec)
+    candidate = write_result(tmp_path / "candidate.json", experiment=candidate_spec)
+
+    assert compare_files(baseline, candidate) == 0
+    assert "Overall: PASS" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("experiment", "expected"),
+    [
+        (None, "missing or invalid experiment object"),
+        ([], "missing or invalid experiment object"),
+        ({"name": "sample", "url": "http://localhost/health", "requests": 0}, "invalid experiment"),
+        ({"name": "sample", "url": "not-a-url", "requests": 10}, "invalid experiment"),
+    ],
+)
+def test_rejects_missing_or_invalid_experiment(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    experiment: object,
+    expected: str,
+) -> None:
+    baseline = write_result(tmp_path / "baseline.json")
+    candidate = write_result(tmp_path / "candidate.json")
+    data = json.loads(baseline.read_text(encoding="utf-8"))
+    if experiment is None:
+        del data["experiment"]
+    else:
+        data["experiment"] = experiment
+    baseline.write_text(json.dumps(data), encoding="utf-8")
+
+    assert compare_files(baseline, candidate) == 2
+    captured = capsys.readouterr()
+    assert expected in captured.err
+    assert "Overall:" not in captured.out

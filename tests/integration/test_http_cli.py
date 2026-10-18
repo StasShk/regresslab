@@ -126,3 +126,42 @@ def test_http_run_save_and_compare(tmp_path: Path) -> None:
         "pp",
         "REGRESSION",
     ]
+
+    # Servers are stopped: series comparison must consume saved files only.
+    manifests = tmp_path / "manifests"
+    manifests.mkdir()
+    manifest = manifests / "pairs.yaml"
+    manifest.write_text(
+        "pairs:\n"
+        "  - id: unchanged\n"
+        "    baseline: ../baseline.json\n"
+        "    candidate: ../baseline.json\n"
+        "  - id: changed\n"
+        "    baseline: ../baseline.json\n"
+        "    candidate: ../candidate.json\n",
+        encoding="utf-8",
+    )
+    comparison_path = tmp_path / "comparison.json"
+    series_report = run_cli(
+        tmp_path,
+        "compare-series",
+        str(manifest),
+        "--output",
+        str(comparison_path),
+        "--p95-latency-pct",
+        "1000000000",
+        "--throughput-pct",
+        "100",
+    )
+    assert series_report.returncode == 0, series_report.stdout + series_report.stderr
+    assert series_report.stderr == ""
+    assert "no series-wide verdict" in series_report.stdout
+    document = json.loads(comparison_path.read_text(encoding="utf-8"))
+    assert document["schema_version"] == 1
+    series = document["series"]
+    assert [pair["pair_id"] for pair in series["pairs"]] == ["unchanged", "changed"]
+    assert series["error_rate"]["pass_count"] == 1
+    assert series["error_rate"]["regression_count"] == 1
+    assert series["error_rate"]["median_change"] == 25.0
+    assert series["pairs"][1]["comparison"]["error_rate"]["candidate"] == 0.5
+    assert "status" not in series

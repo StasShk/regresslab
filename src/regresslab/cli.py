@@ -20,6 +20,13 @@ from regresslab.core.config import ExperimentSpec, load_experiment
 from regresslab.core.http_runner import run_experiment
 from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
 from regresslab.core.models import Measurement
+from regresslab.core.series import (
+    BenchmarkPair,
+    MetricSeriesSummary,
+    SeriesComparison,
+    compare_series,
+)
+from regresslab.core.series_manifest import load_series_manifest
 
 
 def _format_metric(value: float | None, suffix: str, *, scale: float = 1.0) -> str:
@@ -170,13 +177,143 @@ def _print_comparison_report(
     print(f"Overall: {result.status}")
 
 
+def _thresholds_from_args(args: argparse.Namespace) -> RegressionThresholds:
+    return RegressionThresholds(
+        p95_latency_pct=args.p95_latency_pct,
+        throughput_pct=args.throughput_pct,
+        error_rate_points=args.error_rate_points,
+    )
+
+
+def _load_saved_series(manifest_path: Path) -> tuple[BenchmarkPair, ...]:
+    manifest = load_series_manifest(manifest_path)
+    reference_spec: ExperimentSpec | None = None
+    pairs: list[BenchmarkPair] = []
+    for item in manifest.pairs:
+        baseline_path = manifest_path.parent / item.baseline
+        candidate_path = manifest_path.parent / item.candidate
+        baseline_spec, baseline_metrics = _load_saved_result(baseline_path)
+        candidate_spec, candidate_metrics = _load_saved_result(candidate_path)
+        try:
+            _validate_experiment_compatibility(baseline_spec, candidate_spec)
+            if reference_spec is not None:
+                _validate_experiment_compatibility(reference_spec, baseline_spec)
+                _validate_experiment_compatibility(reference_spec, candidate_spec)
+        except ValueError as exc:
+            raise ValueError(f"pair {item.id!r}: {exc}") from exc
+        if reference_spec is None:
+            reference_spec = baseline_spec
+        pairs.append(
+            BenchmarkPair(pair_id=item.id, baseline=baseline_metrics, candidate=candidate_metrics)
+        )
+    return tuple(pairs)
+
+
+def _format_series_change(value: float | None, unit: str) -> str:
+    if value is None:
+        return "n/a"
+    suffix = "%" if unit == "percent" else " pp"
+    return f"{value:+.2f}{suffix}"
+
+
+def _print_series_report(manifest: Path, result: SeriesComparison) -> None:
+    print(f"Series manifest: {manifest}")
+    print(f"Pairs: {result.pair_count}")
+    thresholds = result.thresholds
+    print(
+        f"Thresholds: p95 +{thresholds.p95_latency_pct:g}%, "
+        f"throughput -{thresholds.throughput_pct:g}%, "
+        f"error rate +{thresholds.error_rate_points:g} pp"
+    )
+    width = max(7, *(len(pair.pair_id) for pair in result.pairs))
+    print(
+        f"{'Pair ID':<{width}}  {'p95 latency':<25}  {'Throughput':<25}  {'Error rate':<25}  Result"
+    )
+    for pair in result.pairs:
+        comparison = pair.comparison
+        p95 = f"{_format_change(comparison.p95_latency_ms)} ({comparison.p95_latency_ms.status})"
+        throughput = (
+            f"{_format_change(comparison.successful_throughput_rps)} "
+            f"({comparison.successful_throughput_rps.status})"
+        )
+        error = (
+            f"{_format_change(comparison.error_rate, points=True)} ({comparison.error_rate.status})"
+        )
+        print(
+            f"{pair.pair_id:<{width}}  {p95:<25}  {throughput:<25}  "
+            f"{error:<25}  {comparison.status}"
+        )
+
+    print("Metric summaries (paired changes; no series-wide verdict):")
+    print(
+        f"{'Metric':<24} {'PASS':>5} {'REGRESSION':>11} "
+        f"{'INCONCLUSIVE':>13} {'Defined':>7}  Median [min, max]"
+    )
+
+    def metric_line(name: str, summary: MetricSeriesSummary) -> None:
+        median = _format_series_change(summary.median_change, summary.unit)
+        lower = _format_series_change(summary.min_change, summary.unit)
+        upper = _format_series_change(summary.max_change, summary.unit)
+        print(
+            f"{name:<24} {summary.pass_count:>5} {summary.regression_count:>11} "
+            f"{summary.inconclusive_count:>13} {summary.defined_change_count:>7}  "
+            f"{median} [{lower}, {upper}]"
+        )
+
+    metric_line("p95 latency", result.p95_latency_ms)
+    metric_line("Successful throughput", result.successful_throughput_rps)
+    metric_line("Error rate", result.error_rate)
+
+
+def _compare_saved_series(args: argparse.Namespace) -> int:
+    try:
+        thresholds = _thresholds_from_args(args)
+        pairs = _load_saved_series(args.manifest)
+        result = compare_series(pairs, thresholds)
+        if args.output is not None:
+            document = {"schema_version": 1, "series": result.model_dump(mode="json")}
+            serialized = json.dumps(document, indent=2, allow_nan=False) + "\n"
+            # Exclusive creation also protects manifests and input results from
+            # accidental overwrite, including aliases through symbolic links.
+            with args.output.open("x", encoding="utf-8") as stream:
+                stream.write(serialized)
+    except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
+        print(f"regresslab: {exc}", file=sys.stderr)
+        return 2
+
+    _print_series_report(args.manifest, result)
+    # No statistical series-level decision exists yet: success means only that
+    # the report was generated, even when individual pairs show regressions.
+    return 0
+
+
+def _add_threshold_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--p95-latency-pct",
+        type=float,
+        default=10.0,
+        metavar="PCT",
+        help="Maximum allowed p95 latency increase (default: 10%%)",
+    )
+    parser.add_argument(
+        "--throughput-pct",
+        type=float,
+        default=10.0,
+        metavar="PCT",
+        help="Maximum allowed successful throughput decrease (default: 10%%)",
+    )
+    parser.add_argument(
+        "--error-rate-points",
+        type=float,
+        default=1.0,
+        metavar="POINTS",
+        help="Maximum allowed error rate increase in percentage points (default: 1)",
+    )
+
+
 def _compare_saved_results(args: argparse.Namespace) -> int:
     try:
-        thresholds = RegressionThresholds(
-            p95_latency_pct=args.p95_latency_pct,
-            throughput_pct=args.throughput_pct,
-            error_rate_points=args.error_rate_points,
-        )
+        thresholds = _thresholds_from_args(args)
         baseline_spec, baseline_metrics = _load_saved_result(args.baseline)
         candidate_spec, candidate_metrics = _load_saved_result(args.candidate)
         _validate_experiment_compatibility(baseline_spec, candidate_spec)
@@ -206,31 +343,29 @@ def main(argv: list[str] | None = None) -> int:
     )
     compare.add_argument("baseline", type=Path, help="Baseline JSON from run --output")
     compare.add_argument("candidate", type=Path, help="Candidate JSON from run --output")
-    compare.add_argument(
-        "--p95-latency-pct",
-        type=float,
-        default=10.0,
-        metavar="PCT",
-        help="Maximum allowed p95 latency increase (default: 10%%)",
+    _add_threshold_arguments(compare)
+    compare_series_command = commands.add_parser(
+        "compare-series",
+        help="Summarize matched pairs of saved benchmark results",
+        description=(
+            "Describe per-pair regressions and paired changes without a series-wide verdict. "
+            "Exit codes: 0=REPORT GENERATED, 2=ERROR."
+        ),
     )
-    compare.add_argument(
-        "--throughput-pct",
-        type=float,
-        default=10.0,
-        metavar="PCT",
-        help="Maximum allowed successful throughput decrease (default: 10%%)",
+    compare_series_command.add_argument("manifest", type=Path, help="Series YAML manifest")
+    compare_series_command.add_argument(
+        "--output",
+        type=Path,
+        metavar="FILE",
+        help="Save the descriptive series report as JSON (file must not exist)",
     )
-    compare.add_argument(
-        "--error-rate-points",
-        type=float,
-        default=1.0,
-        metavar="POINTS",
-        help="Maximum allowed error rate increase in percentage points (default: 1)",
-    )
+    _add_threshold_arguments(compare_series_command)
     args = parser.parse_args(argv)
 
     if args.command == "compare":
         return _compare_saved_results(args)
+    if args.command == "compare-series":
+        return _compare_saved_series(args)
 
     try:
         spec = load_experiment(args.config)

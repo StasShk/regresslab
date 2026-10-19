@@ -11,6 +11,8 @@ from itertools import cycle
 from pathlib import Path
 from threading import Thread
 
+import yaml
+
 
 @contextmanager
 def http_server(statuses: tuple[int, ...]) -> Iterator[tuple[str, list[str]]]:
@@ -165,3 +167,54 @@ def test_http_run_save_and_compare(tmp_path: Path) -> None:
     assert series["error_rate"]["median_change"] == 25.0
     assert series["pairs"][1]["comparison"]["error_rate"]["candidate"] == 0.5
     assert "status" not in series
+
+
+def test_http_collect_series_and_compare_offline(tmp_path: Path) -> None:
+    output = tmp_path / "results"
+    with (
+        http_server((200,)) as (baseline_url, baseline_paths),
+        http_server((200, 503)) as (candidate_url, candidate_paths),
+    ):
+        for label, url in (("baseline", baseline_url), ("candidate", candidate_url)):
+            (tmp_path / f"{label}.yaml").write_text(
+                f"name: series-e2e\nurl: {url}\nrequests: 4\nconcurrency: 1\n",
+                encoding="utf-8",
+            )
+        collected = run_cli(
+            tmp_path,
+            "run-series",
+            "baseline.yaml",
+            "candidate.yaml",
+            "--repeats",
+            "2",
+            "--output-dir",
+            str(output),
+        )
+    assert collected.returncode == 0, collected.stdout + collected.stderr
+    assert collected.stderr == ""
+    assert len(baseline_paths) == len(candidate_paths) == 8
+    manifest = yaml.safe_load((output / "pairs.yaml").read_text(encoding="utf-8"))
+    assert len(manifest["pairs"]) == 2
+    for pair in manifest["pairs"]:
+        for label, failures in (("baseline", 0), ("candidate", 2)):
+            saved = json.loads((output / pair[label]).read_text(encoding="utf-8"))
+            assert saved["measurement"]["failed_requests"] == failures
+            assert saved["measurement"]["request_count"] == 4
+            assert saved["metrics"]["error_rate"] == failures / 4
+    # Both servers are stopped; comparisons need only the generated files.
+    compared = run_cli(
+        tmp_path,
+        "compare-series",
+        str(output / "pairs.yaml"),
+        "--output",
+        "comparison.json",
+        "--p95-latency-pct",
+        "1000000000",
+        "--throughput-pct",
+        "100",
+    )
+    assert compared.returncode == 0, compared.stdout + compared.stderr
+    assert compared.stderr == ""
+    report = json.loads((tmp_path / "comparison.json").read_text(encoding="utf-8"))
+    assert report["series"]["error_rate"]["regression_count"] == 2
+    assert report["series"]["error_rate"]["median_change"] == 50.0

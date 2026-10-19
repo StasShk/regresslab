@@ -20,6 +20,12 @@ from regresslab.core.config import ExperimentSpec, load_experiment
 from regresslab.core.http_runner import run_experiment
 from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
 from regresslab.core.models import Measurement
+from regresslab.core.saved_results import (
+    save_result as _save_result,
+)
+from regresslab.core.saved_results import (
+    validate_experiment_compatibility as _validate_experiment_compatibility,
+)
 from regresslab.core.series import (
     BenchmarkPair,
     MetricSeriesSummary,
@@ -27,6 +33,7 @@ from regresslab.core.series import (
     compare_series,
 )
 from regresslab.core.series_manifest import load_series_manifest
+from regresslab.core.series_runner import run_series
 
 
 def _format_metric(value: float | None, suffix: str, *, scale: float = 1.0) -> str:
@@ -57,22 +64,6 @@ def _print_report(
         print(f"Failures: {measurement.failure_detail}")
 
 
-def _save_result(
-    path: Path,
-    spec: ExperimentSpec,
-    measurement: Measurement,
-    metrics: BenchmarkMetrics,
-) -> None:
-    """Store the inputs and measured values for a future comparison command."""
-    result = {
-        "schema_version": 1,
-        "experiment": spec.model_dump(mode="json"),
-        "measurement": measurement.model_dump(mode="json"),
-        "metrics": metrics.model_dump(mode="json"),
-    }
-    path.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8")
-
-
 def _load_saved_result(path: Path) -> tuple[ExperimentSpec, BenchmarkMetrics]:
     """Load experiment settings and metrics from a saved benchmark result."""
     try:
@@ -99,27 +90,6 @@ def _load_saved_result(path: Path) -> tuple[ExperimentSpec, BenchmarkMetrics]:
         raise ValueError(f"{path}: invalid experiment: {exc}") from exc
 
     return experiment, metrics
-
-
-def _validate_experiment_compatibility(
-    baseline: ExperimentSpec,
-    candidate: ExperimentSpec,
-) -> None:
-    """Require equivalent workloads, while allowing different hosts and ports."""
-    checks = (
-        ("name", baseline.name, candidate.name),
-        ("URL scheme", baseline.url.scheme, candidate.url.scheme),
-        ("URL path", baseline.url.path, candidate.url.path),
-        ("URL query", baseline.url.query, candidate.url.query),
-        ("requests", baseline.requests, candidate.requests),
-        ("concurrency", baseline.concurrency, candidate.concurrency),
-    )
-    for field, before, after in checks:
-        if before != after:
-            raise ValueError(
-                f"incompatible experiments: {field} differs "
-                f"(baseline={before!r}, candidate={after!r})"
-            )
 
 
 def _format_change(comparison: MetricComparison, *, points: bool = False) -> str:
@@ -330,12 +300,63 @@ def _compare_saved_results(args: argparse.Namespace) -> int:
     }[result.status]
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def _run_series_command(args: argparse.Namespace) -> int:
+    try:
+        baseline = load_experiment(args.baseline)
+        candidate = load_experiment(args.candidate)
+        manifest = asyncio.run(
+            run_series(baseline, candidate, repeats=args.repeats, output_dir=args.output_dir)
+        )
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print(
+            f"regresslab: series interrupted; completed measurements remain in {args.output_dir}",
+            file=sys.stderr,
+        )
+        return 130
+    except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
+        print(f"regresslab: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Saved series manifest: {manifest} ({args.repeats} pairs)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="regresslab", description="HTTP benchmark runner")
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="Run an HTTP benchmark from a YAML config")
     run.add_argument("config", type=Path, help="Path to the experiment YAML file")
     run.add_argument("--output", type=Path, metavar="FILE", help="Save full result as JSON")
+    collect = commands.add_parser(
+        "run-series",
+        help="Collect matched benchmark pairs in alternating execution order",
+        description=(
+            "Run sequential baseline/candidate pairs and save a compare-series manifest. "
+            "Exit codes: 0=SERIES COLLECTED, 2=ERROR, 130=INTERRUPTED."
+        ),
+    )
+    collect.add_argument("baseline", type=Path, help="Baseline experiment YAML")
+    collect.add_argument("candidate", type=Path, help="Candidate experiment YAML")
+    collect.add_argument(
+        "--repeats", type=_positive_int, required=True, metavar="N", help="Number of matched pairs"
+    )
+    collect.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        metavar="DIR",
+        help="New directory for measurements and pairs.yaml (must not exist)",
+    )
     compare = commands.add_parser(
         "compare",
         help="Compare two saved benchmark JSON results",
@@ -366,6 +387,8 @@ def main(argv: list[str] | None = None) -> int:
         return _compare_saved_results(args)
     if args.command == "compare-series":
         return _compare_saved_series(args)
+    if args.command == "run-series":
+        return _run_series_command(args)
 
     try:
         spec = load_experiment(args.config)

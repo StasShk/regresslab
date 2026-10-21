@@ -1,11 +1,40 @@
 """Shared saved-result format and workload compatibility checks."""
 
 import json
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from regresslab.core.config import ExperimentSpec
 from regresslab.core.metrics import BenchmarkMetrics
 from regresslab.core.models import Measurement
+
+
+@contextmanager
+def new_result_file(path: Path) -> Iterator[Path]:
+    """Stage a result and publish it atomically without replacing another file.
+
+    Enter this context before starting the benchmark. The parent must exist and
+    support hard links. The yielded path is private temporary storage; it is
+    published only after the body completes successfully.
+    """
+    path = path.absolute()
+    if path.exists() or path.is_symlink():
+        raise FileExistsError(f"Output path already exists: {path}")
+
+    with TemporaryDirectory(prefix=".regresslab-", dir=path.parent) as directory:
+        temporary = Path(directory) / "result.json"
+        temporary.touch()
+        # Check write access and hard-link support before sending HTTP requests.
+        probe = Path(directory) / "probe"
+        os.link(temporary, probe)
+        probe.unlink()
+        yield temporary
+        # Unlike replace(), link() fails if another process created the target
+        # during measurement. Readers see only the fully written result.
+        os.link(temporary, path)
 
 
 def save_result(

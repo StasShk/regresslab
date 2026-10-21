@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 import yaml
@@ -20,6 +21,7 @@ from regresslab.core.config import ExperimentSpec, load_experiment
 from regresslab.core.http_runner import run_experiment
 from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
 from regresslab.core.models import Measurement
+from regresslab.core.saved_results import new_result_file
 from regresslab.core.saved_results import (
     save_result as _save_result,
 )
@@ -336,7 +338,12 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="Run an HTTP benchmark from a YAML config")
     run.add_argument("config", type=Path, help="Path to the experiment YAML file")
-    run.add_argument("--output", type=Path, metavar="FILE", help="Save full result as JSON")
+    run.add_argument(
+        "--output",
+        type=Path,
+        metavar="FILE",
+        help="Save full result as JSON (file must not exist; parent must exist)",
+    )
     collect = commands.add_parser(
         "run-series",
         help="Collect matched benchmark pairs in alternating execution order",
@@ -395,10 +402,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.output is not None and args.output.resolve() == args.config.resolve():
             raise ValueError("output path must differ from the experiment config path")
 
-        measurement = asyncio.run(run_experiment(spec))
-        metrics = calculate_metrics(measurement)
-        if args.output is not None:
-            _save_result(args.output, spec, measurement, metrics)
+        output_context = new_result_file(args.output) if args.output is not None else nullcontext()
+        with output_context as temporary:
+            measurement = asyncio.run(run_experiment(spec))
+            metrics = calculate_metrics(measurement)
+            if temporary is not None:
+                _save_result(temporary, spec, measurement, metrics)
     except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
         print(f"regresslab: {exc}", file=sys.stderr)
         return 1

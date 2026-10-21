@@ -218,3 +218,19 @@ def test_http_collect_series_and_compare_offline(tmp_path: Path) -> None:
     report = json.loads((tmp_path / "comparison.json").read_text(encoding="utf-8"))
     assert report["series"]["error_rate"]["regression_count"] == 2
     assert report["series"]["error_rate"]["median_change"] == 50.0
+
+
+def test_invalid_output_does_not_send_http_requests(tmp_path: Path) -> None:
+    config = tmp_path / "experiment.yaml"
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text("preserve this baseline", encoding="utf-8")
+    with http_server((200,)) as (url, paths):
+        config.write_text(f"name: output-check\nurl: {url}\nrequests: 4\n", encoding="utf-8")
+        for output in (baseline, tmp_path / "missing" / "run.json"):
+            result = run_cli(tmp_path, "run", str(config), "--output", str(output))
+            assert result.returncode == 1, result.stdout + result.stderr
+            assert result.stdout == ""
+            assert "regresslab:" in result.stderr
+        assert paths == []
+    assert baseline.read_text(encoding="utf-8") == "preserve this baseline"
+    assert set(tmp_path.iterdir()) == {config, baseline}

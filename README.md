@@ -22,6 +22,15 @@ interruption behavior, and limitations.
 
 Save benchmark runs with `regresslab run experiment.yaml --output run.json`,
 then compare a pair with `regresslab compare baseline.json candidate.json`.
+For `run --output`, choose a new filename in an existing directory. Existing
+files (including symbolic links) are rejected before sending requests. Results
+are written to temporary storage and published only after the complete JSON is
+saved; a file created by another process during the run is never overwritten.
+The output filesystem must support hard links, which is checked before the run.
+Failures return exit code `1`; temporary storage is cleaned up on ordinary
+errors and cancellation. Forced termination can leave a temporary directory,
+and this mechanism does not guarantee durability across power loss.
+
 To summarize several matched pairs from a YAML manifest **without writing Python**:
 
 ```sh

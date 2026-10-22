@@ -81,3 +81,55 @@ regression counts. A single pair can have a verdict, but it does not establish
 that the entire series is statistically reliable. See
 [comparison-series.md](comparison-series.md) for the Python API and measurement
 caveats.
+
+## Optional statistical gate
+
+`compare-series` remains descriptive unless `--gate` is supplied. To turn the
+same saved matched pairs into a CI gate:
+
+```sh
+regresslab compare-series results/pairs.yaml \
+  --gate --min-pairs 8 --confidence 0.95 \
+  --p95-latency-pct 10 --throughput-pct 10 --error-rate-points 1 \
+  --output gate.json
+```
+
+The gate tests the **median paired worsening** (not the mean request latency,
+not a pooled p95, and not the proportion of regressed individual runs).
+Worsening is `100 * (candidate/baseline - 1)` for p95 latency,
+`100 * (1 - candidate/baseline)` for successful throughput, and
+`100 * (candidate_error_rate - baseline_error_rate)` in percentage points.
+A positive value means worse performance for every metric.
+
+Independent and comparably distributed *run pairs* are assumed. The gate uses
+exact binomial order-statistic bounds for the population median. There are
+three metrics and two one-sided bounds per metric; the Bonferroni allocation
+is `(1 - confidence) / 6` per bound. This controls familywise false decisions
+under those assumptions without bootstrap, random seeds, normality assumptions,
+or an extra SciPy dependency. The reported interval is formed by its two
+one-sided bounds. Its simultaneous coverage is at least the configured
+confidence, and it may be conservative for small samples.
+
+- `PASS` (exit `0`): all three upper bounds are strictly below their respective
+  worsening thresholds.
+- `REGRESSION` (exit `1`): any metric's lower bound is strictly above its
+  threshold, even if another metric cannot be evaluated.
+- `INCONCLUSIVE` (exit `3`): a boundary overlaps/touches its threshold, there
+  are fewer than `--min-pairs` pairs, the confidence is too high for finite
+  distribution-free bounds, or a necessary metric is missing or undefined.
+- `ERROR` (exit `2`): invalid configuration, manifest/result, incompatible
+  workloads, or file I/O failure.
+
+For relative comparisons, *every* baseline must be positive: a baseline of
+zero (including `0 -> 0` throughput) is undefined and cannot yield PASS.
+Missing metrics are not silently removed; they make that metric INCONCLUSIVE.
+`--min-pairs 8` is a collection floor, not a power guarantee; a high confidence
+or high noise can require substantially more pairs. Exact threshold equality
+remains INCONCLUSIVE. The gate does not compensate for serial correlation,
+non-stationarity, shared infrastructure noise, or a mismatched workload.
+
+In `--gate` mode, the JSON retains the unchanged `series` object and adds a
+`gate` object with `status`, parameters, all three metric decisions, finite
+one-sided bounds (or `null`), and reasons. Existing files are never overwritten.
+Without `--gate`, the original JSON shape and exit codes are preserved. The
+options `--min-pairs` and `--confidence` require `--gate`.

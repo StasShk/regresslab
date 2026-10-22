@@ -66,3 +66,9 @@ regresslab compare-series pairs.yaml --output comparison.json
 
 See [the series CLI guide](docs/series-cli.md) for the manifest format, examples,
 compatibility rules, and exit-code semantics.
+
+For a CI decision over repeated matched pairs, add `--gate` (requires at least
+8 complete pairs by default). The statistical gate returns `0=PASS`,
+`1=REGRESSION`, `2=ERROR`, or `3=INCONCLUSIVE` and adds a `gate` object to the
+JSON output. The ordinary descriptive `compare-series` stays unchanged.
+See [statistical gate details](docs/series-cli.md#optional-statistical-gate).

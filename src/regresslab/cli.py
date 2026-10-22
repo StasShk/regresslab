@@ -36,6 +36,7 @@ from regresslab.core.series import (
 )
 from regresslab.core.series_manifest import load_series_manifest
 from regresslab.core.series_runner import run_series
+from regresslab.core.statistical_gate import StatisticalGateResult, gate_series
 
 
 def _format_metric(value: float | None, suffix: str, *, scale: float = 1.0) -> str:
@@ -237,13 +238,50 @@ def _print_series_report(manifest: Path, result: SeriesComparison) -> None:
     metric_line("Error rate", result.error_rate)
 
 
+def _print_statistical_gate(result: StatisticalGateResult) -> None:
+    print(
+        f"Statistical gate: {result.status} "
+        f"(median paired worsening; confidence={result.confidence:g}, "
+        f"min_pairs={result.min_pairs})"
+    )
+    for label, metric in (
+        ("p95 latency", result.p95_latency_ms),
+        ("Successful throughput", result.successful_throughput_rps),
+        ("Error rate", result.error_rate),
+    ):
+        unit = "%" if metric.unit == "percent" else " pp"
+        lower = "n/a" if metric.lower_bound is None else f"{metric.lower_bound:+.2f}{unit}"
+        upper = "n/a" if metric.upper_bound is None else f"{metric.upper_bound:+.2f}{unit}"
+        print(
+            f"  {label}: {metric.status} "
+            f"(bounds [{lower}, {upper}], limit +{metric.threshold:g}{unit}, "
+            f"valid pairs {metric.valid_pairs})"
+        )
+        if metric.reason:
+            print(f"    Reason: {metric.reason}")
+
+
 def _compare_saved_series(args: argparse.Namespace) -> int:
     try:
         thresholds = _thresholds_from_args(args)
+        if not args.gate and (args.min_pairs is not None or args.confidence is not None):
+            raise ValueError("--min-pairs and --confidence require --gate")
         pairs = _load_saved_series(args.manifest)
         result = compare_series(pairs, thresholds)
+        gate = (
+            gate_series(
+                pairs,
+                thresholds,
+                min_pairs=args.min_pairs if args.min_pairs is not None else 8,
+                confidence=args.confidence if args.confidence is not None else 0.95,
+            )
+            if args.gate
+            else None
+        )
         if args.output is not None:
             document = {"schema_version": 1, "series": result.model_dump(mode="json")}
+            if gate is not None:
+                document["gate"] = gate.model_dump(mode="json")
             serialized = json.dumps(document, indent=2, allow_nan=False) + "\n"
             # Exclusive creation also protects manifests and input results from
             # accidental overwrite, including aliases through symbolic links.
@@ -254,8 +292,14 @@ def _compare_saved_series(args: argparse.Namespace) -> int:
         return 2
 
     _print_series_report(args.manifest, result)
-    # No statistical series-level decision exists yet: success means only that
-    # the report was generated, even when individual pairs show regressions.
+    if gate is not None:
+        _print_statistical_gate(gate)
+        return {
+            ComparisonStatus.PASS: 0,
+            ComparisonStatus.REGRESSION: 1,
+            ComparisonStatus.INCONCLUSIVE: 3,
+        }[gate.status]
+    # Non-gate mode retains its descriptive report and existing exit code.
     return 0
 
 
@@ -376,8 +420,9 @@ def main(argv: list[str] | None = None) -> int:
         "compare-series",
         help="Summarize matched pairs of saved benchmark results",
         description=(
-            "Describe per-pair regressions and paired changes without a series-wide verdict. "
-            "Exit codes: 0=REPORT GENERATED, 2=ERROR."
+            "Describe per-pair changes; optionally make a statistical decision with --gate. "
+            "Without --gate: 0=REPORT GENERATED, 2=ERROR. "
+            "With --gate: 0=PASS, 1=REGRESSION, 2=ERROR, 3=INCONCLUSIVE."
         ),
     )
     compare_series_command.add_argument("manifest", type=Path, help="Series YAML manifest")
@@ -388,6 +433,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Save the descriptive series report as JSON (file must not exist)",
     )
     _add_threshold_arguments(compare_series_command)
+    compare_series_command.add_argument(
+        "--gate", action="store_true", help="Enable the statistical series-level decision"
+    )
+    compare_series_command.add_argument(
+        "--min-pairs",
+        type=_positive_int,
+        metavar="N",
+        help="Minimum matched pairs for --gate (default: 8)",
+    )
+    compare_series_command.add_argument(
+        "--confidence",
+        type=float,
+        metavar="LEVEL",
+        help="Familywise statistical confidence for --gate (default: 0.95)",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "compare":

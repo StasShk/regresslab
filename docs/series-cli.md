@@ -52,8 +52,10 @@ throughput changes are percentages.
 Compatibility is checked both **within each pair** and **across all pairs**,
 using the same workload checks as the existing `compare` command. Different
 hosts and ports are permitted, while the experiment name, URL scheme/path/query,
-request count, and concurrency must match. You must still ensure comparable
-runtime environments and meaningful baseline/candidate pairing yourself.
+request count, concurrency, and `timeout_seconds` must match. Older saved
+results without `timeout_seconds` use the default of `5.0` seconds. You must
+still ensure comparable runtime environments and meaningful baseline/candidate
+pairing yourself.
 
 ## Exit codes and interpretation
 

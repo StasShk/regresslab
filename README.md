@@ -18,6 +18,33 @@ the final manifest is published only when the entire series completes.
 See [the collection guide](docs/run-series.md) for configuration examples,
 interruption behavior, and limitations.
 
+## Configure HTTP timeouts
+
+Set `timeout_seconds` in the experiment YAML used by `run` or `run-series`:
+
+```yaml
+name: orders
+url: http://localhost:8000/orders
+requests: 1000
+concurrency: 4
+timeout_seconds: 2.5
+```
+
+The value must be a finite number greater than zero (integers are accepted;
+strings, booleans, and `null` are rejected). Omitting it keeps the default of
+`5.0` seconds. The value applies to HTTPX's connect, read, write, and connection
+pool timeouts. Read/write timeouts limit waiting for each chunk of data; this
+is not a deadline for the entire request or benchmark.
+
+A timed-out request is counted as failed and excluded from latency percentiles;
+collection continues and the error rate includes that failure. A completed
+collection can still return exit code `0` when requests time out.
+
+Saved results include `timeout_seconds`. Comparisons require matching timeouts,
+including across all pairs in a series, because the setting affects measured
+errors and throughput. Older results without the field are interpreted as
+`5.0` seconds and remain comparable to new results using that default.
+
 ## Compare saved benchmark results
 
 Save benchmark runs with `regresslab run experiment.yaml --output run.json`,

@@ -44,7 +44,7 @@ async def run_experiment(spec: ExperimentSpec) -> Measurement:
     first_failure: str | None = None
 
     async with httpx.AsyncClient(
-        timeout=5.0,
+        timeout=spec.timeout_seconds,
         limits=httpx.Limits(
             max_connections=worker_count,
             max_keepalive_connections=worker_count,

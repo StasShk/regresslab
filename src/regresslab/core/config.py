@@ -15,6 +15,7 @@ class ExperimentSpec(BaseModel):
     url: HttpUrl
     requests: int = Field(gt=0, strict=True)
     concurrency: int = Field(default=1, gt=0, strict=True)
+    timeout_seconds: float = Field(default=5.0, gt=0, strict=True, allow_inf_nan=False)
 
 
 def load_experiment(path: Path) -> ExperimentSpec:

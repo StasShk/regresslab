@@ -10,22 +10,31 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from itertools import cycle
 from pathlib import Path
 from threading import Thread
+from time import sleep
 
+import pytest
 import yaml
 
 
 @contextmanager
-def http_server(statuses: tuple[int, ...]) -> Iterator[tuple[str, list[str]]]:
+def http_server(
+    statuses: tuple[int, ...], *, delay: float = 0.0
+) -> Iterator[tuple[str, list[str]]]:
     responses = cycle(statuses)
     paths: list[str] = []
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             paths.append(self.path)
+            if delay:
+                sleep(delay)
             self.send_response(next(responses))
             self.send_header("Content-Length", "2")
             self.end_headers()
-            self.wfile.write(b"ok")
+            try:
+                self.wfile.write(b"ok")
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # Expected when the client times out before the response.
 
         def log_message(self, format: str, *args: object) -> None:
             pass
@@ -177,7 +186,7 @@ def test_http_collect_series_and_compare_offline(tmp_path: Path) -> None:
     ):
         for label, url in (("baseline", baseline_url), ("candidate", candidate_url)):
             (tmp_path / f"{label}.yaml").write_text(
-                f"name: series-e2e\nurl: {url}\nrequests: 4\nconcurrency: 1\n",
+                f"name: series-e2e\nurl: {url}\nrequests: 4\nconcurrency: 1\ntimeout_seconds: 2\n",
                 encoding="utf-8",
             )
         collected = run_cli(
@@ -198,6 +207,7 @@ def test_http_collect_series_and_compare_offline(tmp_path: Path) -> None:
     for pair in manifest["pairs"]:
         for label, failures in (("baseline", 0), ("candidate", 2)):
             saved = json.loads((output / pair[label]).read_text(encoding="utf-8"))
+            assert saved["experiment"]["timeout_seconds"] == 2.0
             assert saved["measurement"]["failed_requests"] == failures
             assert saved["measurement"]["request_count"] == 4
             assert saved["metrics"]["error_rate"] == failures / 4
@@ -234,3 +244,31 @@ def test_invalid_output_does_not_send_http_requests(tmp_path: Path) -> None:
         assert paths == []
     assert baseline.read_text(encoding="utf-8") == "preserve this baseline"
     assert set(tmp_path.iterdir()) == {config, baseline}
+
+
+@pytest.mark.parametrize("timeout, failures", [(0.1, 1), (2.0, 0)])
+def test_configured_timeout_on_slow_http_response(
+    tmp_path: Path, timeout: float, failures: int
+) -> None:
+    config, output = tmp_path / "slow.yaml", tmp_path / "slow.json"
+    with http_server((200,), delay=0.5) as (url, paths):
+        config.write_text(
+            f"name: slow\nurl: {url}\nrequests: 1\ntimeout_seconds: {timeout}\n",
+            encoding="utf-8",
+        )
+        result = run_cli(tmp_path, "run", str(config), "--output", str(output))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stderr == ""
+    assert paths == ["/health"]
+    saved = json.loads(output.read_text(encoding="utf-8"))
+    assert saved["experiment"]["timeout_seconds"] == timeout
+    assert saved["measurement"]["request_count"] == 1
+    assert saved["measurement"]["failed_requests"] == failures
+    assert saved["measurement"]["successful_requests"] == 1 - failures
+    assert saved["metrics"]["error_rate"] == failures
+    if failures:
+        assert "ReadTimeout" in saved["measurement"]["failure_detail"]
+        assert saved["measurement"]["latencies_ms"] == []
+        assert saved["metrics"]["p95_ms"] is None
+    else:
+        assert saved["metrics"]["p95_ms"] > 0

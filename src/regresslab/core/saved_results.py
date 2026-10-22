@@ -65,6 +65,7 @@ def validate_experiment_compatibility(
         ("URL query", baseline.url.query, candidate.url.query),
         ("requests", baseline.requests, candidate.requests),
         ("concurrency", baseline.concurrency, candidate.concurrency),
+        ("timeout_seconds", baseline.timeout_seconds, candidate.timeout_seconds),
     )
     for field, before, after in checks:
         if before != after:

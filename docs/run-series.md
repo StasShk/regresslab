@@ -11,6 +11,7 @@ name: orders
 url: http://localhost:8000/orders
 requests: 1000
 concurrency: 4
+timeout_seconds: 2.5
 ```
 
 Create `candidate.yaml` with the same workload and a different service address:
@@ -20,6 +21,7 @@ name: orders
 url: http://localhost:8001/orders
 requests: 1000
 concurrency: 4
+timeout_seconds: 2.5
 ```
 
 Collect four pairs, then compare the saved measurements:
@@ -43,8 +45,10 @@ remain baseline and candidate regardless of execution order.
 
 Before sending requests or creating the output directory, RegressLab checks
 that the configurations have matching names, URL schemes, paths, query strings,
-request counts, and concurrency. Hosts and ports may differ. This checks the
-declared workload, not equivalence of the services or their environments.
+request counts, concurrency, and `timeout_seconds`. Hosts and ports may differ.
+This checks the declared workload, not equivalence of the services or their
+environments. The timeout defaults to `5.0` seconds; see
+[HTTP timeout configuration](../README.md#configure-http-timeouts) for semantics.
 
 The output directory must not exist, even if empty. Missing parent directories
 are created. Each completed measurement is saved immediately as
@@ -72,7 +76,7 @@ you want to analyze.
 - `2`: invalid arguments/configuration, incompatible workloads, or a file error.
 - `130`: interrupted by Ctrl+C or asynchronous cancellation.
 
-HTTP errors and connection failures are recorded as failed requests, as in
+HTTP errors, timeouts, and connection failures are recorded as failed requests, as in
 `run`; they do not by themselves abort collection. Exit code `0` is not a
 performance verdict. Inspect error rates and missing metrics in the subsequent
 comparison report.

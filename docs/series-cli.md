@@ -101,7 +101,15 @@ Worsening is `100 * (candidate/baseline - 1)` for p95 latency,
 `100 * (candidate_error_rate - baseline_error_rate)` in percentage points.
 A positive value means worse performance for every metric.
 
-Independent and comparably distributed *run pairs* are assumed. The gate uses
+Independent and comparably distributed *run pairs* are assumed. To prevent
+accidentally treating the same saved run as several independent observations,
+`--gate` requires every baseline and candidate result file in the manifest to
+be distinct (including across pairs and through symlinks/path aliases). Reuse
+of any input file is an `ERROR` (exit `2`); descriptive comparisons remain
+unaffected. Different files do not prove statistical independence: the caller
+must still run independent, comparable measurements.
+
+The gate uses
 exact binomial order-statistic bounds for the population median. There are
 three metrics and two one-sided bounds per metric; the Bonferroni allocation
 is `(1 - confidence) / 6` per bound. This controls familywise false decisions

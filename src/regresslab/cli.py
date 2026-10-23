@@ -158,13 +158,28 @@ def _thresholds_from_args(args: argparse.Namespace) -> RegressionThresholds:
     )
 
 
-def _load_saved_series(manifest_path: Path) -> tuple[BenchmarkPair, ...]:
+def _load_saved_series(
+    manifest_path: Path, *, require_unique_sources: bool = False
+) -> tuple[BenchmarkPair, ...]:
     manifest = load_series_manifest(manifest_path)
     reference_spec: ExperimentSpec | None = None
     pairs: list[BenchmarkPair] = []
+    # Repeated input files are fine for a descriptive report, but cannot count
+    # as independent observations for a statistical gate. Resolve symlinks and
+    # relative path aliases so spelling changes cannot bypass this check.
+    source_owners: dict[Path, str] = {}
     for item in manifest.pairs:
         baseline_path = manifest_path.parent / item.baseline
         candidate_path = manifest_path.parent / item.candidate
+        if require_unique_sources:
+            for role, path in (("baseline", baseline_path), ("candidate", candidate_path)):
+                canonical = path.resolve()
+                if previous_owner := source_owners.get(canonical):
+                    raise ValueError(
+                        f"statistical gate requires distinct result files: {path} "
+                        f"(pair {item.id!r} {role}) reuses {previous_owner}"
+                    )
+                source_owners[canonical] = f"pair {item.id!r} {role}"
         baseline_spec, baseline_metrics = _load_saved_result(baseline_path)
         candidate_spec, candidate_metrics = _load_saved_result(candidate_path)
         try:
@@ -266,7 +281,7 @@ def _compare_saved_series(args: argparse.Namespace) -> int:
         thresholds = _thresholds_from_args(args)
         if not args.gate and (args.min_pairs is not None or args.confidence is not None):
             raise ValueError("--min-pairs and --confidence require --gate")
-        pairs = _load_saved_series(args.manifest)
+        pairs = _load_saved_series(args.manifest, require_unique_sources=args.gate)
         result = compare_series(pairs, thresholds)
         gate = (
             gate_series(

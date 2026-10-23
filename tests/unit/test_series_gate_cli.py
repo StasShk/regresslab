@@ -59,12 +59,14 @@ def _series(
     throughput: float | None = 100,
     error_rate: float | None = 0,
 ) -> Path:
-    save_result(tmp_path / "baseline.json")
-    save_result(tmp_path / "candidate.json", p95=p95, throughput=throughput, error_rate=error_rate)
-    return write_manifest(
-        tmp_path / "pairs.yaml",
-        [(f"pair-{i}", "baseline.json", "candidate.json") for i in range(count)],
-    )
+    paths = []
+    for i in range(count):
+        baseline = f"baseline-{i}.json"
+        candidate = f"candidate-{i}.json"
+        save_result(tmp_path / baseline)
+        save_result(tmp_path / candidate, p95=p95, throughput=throughput, error_rate=error_rate)
+        paths.append((f"pair-{i}", baseline, candidate))
+    return write_manifest(tmp_path / "pairs.yaml", paths)
 
 
 def test_gate_pass_with_json_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -91,18 +93,54 @@ def test_gate_insufficient_pairs_never_passes(tmp_path: Path) -> None:
 
 
 def test_gate_undefined_throughput_is_inconclusive(tmp_path: Path) -> None:
-    save_result(tmp_path / "before.json", throughput=0)
-    save_result(tmp_path / "after.json", throughput=0)
-    manifest = write_manifest(
-        tmp_path / "pairs.yaml",
-        [(f"pair-{i}", "before.json", "after.json") for i in range(8)],
-    )
+    paths = []
+    for i in range(8):
+        before, after = f"before-{i}.json", f"after-{i}.json"
+        save_result(tmp_path / before, throughput=0)
+        save_result(tmp_path / after, throughput=0)
+        paths.append((f"pair-{i}", before, after))
+    manifest = write_manifest(tmp_path / "pairs.yaml", paths)
     assert cli.main(["compare-series", str(manifest), "--gate"]) == 3
 
 
 def test_gate_missing_p95_is_inconclusive(tmp_path: Path) -> None:
     manifest = _series(tmp_path, p95=None)
     assert cli.main(["compare-series", str(manifest), "--gate"]) == 3
+
+
+def test_gate_rejects_reusing_baseline_across_pairs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    save_result(tmp_path / "baseline.json")
+    paths = []
+    for i in range(8):
+        name = f"candidate-{i}.json"
+        save_result(tmp_path / name)
+        paths.append((f"pair-{i}", "baseline.json", name))
+    manifest = write_manifest(tmp_path / "pairs.yaml", paths)
+    output = tmp_path / "report.json"
+    assert cli.main(["compare-series", str(manifest), "--gate", "--output", str(output)]) == 2
+    assert "reuses pair 'pair-0' baseline" in capsys.readouterr().err
+    assert not output.exists()
+    # A descriptive report has never required independently sourced runs.
+    assert cli.main(["compare-series", str(manifest)]) == 0
+
+
+def test_gate_rejects_same_result_on_both_sides(tmp_path: Path) -> None:
+    save_result(tmp_path / "result.json")
+    manifest = write_manifest(tmp_path / "pairs.yaml", [("same", "result.json", "result.json")])
+    assert cli.main(["compare-series", str(manifest), "--gate"]) == 2
+
+
+def test_gate_rejects_source_path_alias(tmp_path: Path) -> None:
+    save_result(tmp_path / "original.json")
+    (tmp_path / "alias.json").symlink_to(tmp_path / "original.json")
+    save_result(tmp_path / "other.json")
+    manifest = write_manifest(
+        tmp_path / "pairs.yaml",
+        [("one", "original.json", "other.json"), ("two", "alias.json", "other.json")],
+    )
+    assert cli.main(["compare-series", str(manifest), "--gate"]) == 2
 
 
 def test_descriptive_mode_preserves_exit_code_and_json(tmp_path: Path) -> None:

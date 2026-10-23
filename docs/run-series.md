@@ -45,7 +45,8 @@ remain baseline and candidate regardless of execution order.
 
 Before sending requests or creating the output directory, RegressLab checks
 that the configurations have matching names, URL schemes, paths, query strings,
-request counts, concurrency, and `timeout_seconds`. Hosts and ports may differ.
+request counts, concurrency, `timeout_seconds`, `warmup_requests`, and
+`max_duration_seconds`. Hosts and ports may differ.
 This checks the declared workload, not equivalence of the services or their
 environments. The timeout defaults to `5.0` seconds; see
 [HTTP timeout configuration](../README.md#configure-http-timeouts) for semantics.
@@ -81,8 +82,12 @@ HTTP errors, timeouts, and connection failures are recorded as failed requests, 
 performance verdict. Inspect error rates and missing metrics in the subsequent
 comparison report.
 
-This command uses the existing fixed-request HTTP runner. It does not start
-services, warm them up, reset their state, or introduce delays between runs.
-Each run creates a fresh HTTP client. Alternating order can reduce order bias,
-but does not eliminate environmental noise or establish statistical confidence.
-Series comparison remains descriptive, with no aggregate pass/fail verdict.
+This command uses the fixed-request HTTP runner and optionally performs warmup
+before each measurement. It does not start services, reset their state, or
+introduce delays between runs. Each run creates a fresh HTTP client. A total
+execution deadline or saved-result-size violation aborts collection (exit 2),
+leaving already completed results without publishing a final manifest. See
+[execution budgets](execution-budgets.md) for warmup and limit semantics.
+Alternating order can reduce order bias, but does not eliminate environmental
+noise or establish statistical confidence. Series comparison can optionally
+provide a statistical decision via `--gate`.

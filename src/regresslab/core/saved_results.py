@@ -50,7 +50,15 @@ def save_result(
         "measurement": measurement.model_dump(mode="json"),
         "metrics": metrics.model_dump(mode="json"),
     }
-    path.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    serialized = json.dumps(result, indent=2, allow_nan=False) + "\n"
+    if spec.max_result_bytes is not None:
+        actual_bytes = len(serialized.encode("utf-8"))
+        if actual_bytes > spec.max_result_bytes:
+            raise ValueError(
+                f"Saved result exceeds max_result_bytes={spec.max_result_bytes}: "
+                f"{actual_bytes} bytes"
+            )
+    path.write_text(serialized, encoding="utf-8")
 
 
 def validate_experiment_compatibility(
@@ -66,6 +74,8 @@ def validate_experiment_compatibility(
         ("requests", baseline.requests, candidate.requests),
         ("concurrency", baseline.concurrency, candidate.concurrency),
         ("timeout_seconds", baseline.timeout_seconds, candidate.timeout_seconds),
+        ("warmup_requests", baseline.warmup_requests, candidate.warmup_requests),
+        ("max_duration_seconds", baseline.max_duration_seconds, candidate.max_duration_seconds),
     )
     for field, before, after in checks:
         if before != after:

@@ -45,6 +45,14 @@ including across all pairs in a series, because the setting affects measured
 errors and throughput. Older results without the field are interpreted as
 `5.0` seconds and remain comparable to new results using that default.
 
+## Warmup and execution budgets
+
+`warmup_requests` runs unmeasured HTTP requests before each benchmark; an optional
+`max_duration_seconds` bounds the **entire run**, including warmup. You can also
+configure `max_requests`, `max_concurrency`, and `max_result_bytes` as safety
+caps. Defaults preserve earlier behavior. See the
+[execution budgets guide](docs/execution-budgets.md).
+
 ## Compare saved benchmark results
 
 Save benchmark runs with `regresslab run experiment.yaml --output run.json`,

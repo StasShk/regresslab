@@ -90,7 +90,7 @@ def test_http_run_save_and_compare(tmp_path: Path) -> None:
         assert paths == ["/health"] * 8
         saved = json.loads(output.read_text(encoding="utf-8"))
         assert saved["schema_version"] == 1
-        assert saved["experiment"]["url"] == url
+        assert saved["experiment"]["url"] == "http://redacted.invalid/health"
         measurement = saved["measurement"]
         assert measurement["request_count"] == 8
         assert measurement["successful_requests"] == 8 - failures

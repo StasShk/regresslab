@@ -55,7 +55,10 @@ hosts and ports are permitted, while the experiment name, URL scheme/path/query,
 request count, concurrency, and `timeout_seconds` must match. Older saved
 results without `timeout_seconds` use the default of `5.0` seconds. You must
 still ensure comparable runtime environments and meaningful baseline/candidate
-pairing yourself.
+pairing yourself. When provenance is present, mismatched runner and configuration
+metadata produces warnings. `--strict-environment` rejects missing or
+inconsistent testbed provenance across pairs (exit `2`); see the
+[provenance guide](environment-provenance.md). Revision IDs may differ.
 
 ## Exit codes and interpretation
 

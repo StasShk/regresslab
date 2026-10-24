@@ -2,14 +2,17 @@
 
 import json
 import os
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from urllib.parse import parse_qsl
 
 from regresslab.core.config import ExperimentSpec
 from regresslab.core.metrics import BenchmarkMetrics
 from regresslab.core.models import Measurement
+from regresslab.core.provenance import build_provenance
 
 
 @contextmanager
@@ -37,6 +40,25 @@ def new_result_file(path: Path) -> Iterator[Path]:
         os.link(temporary, path)
 
 
+def _safe_experiment_document(spec: ExperimentSpec) -> dict[str, object]:
+    """Redact target host, port, userinfo and fragment in persisted results."""
+    query = spec.url.query
+    if query:
+        for key, _ in parse_qsl(query, keep_blank_values=True):
+            if re.search(
+                r"(?i)(token|secret|auth|pass|pwd|session|cookie|"
+                r"credential|api[_-]?key|signature|key$)",
+                key,
+            ):
+                raise ValueError("cannot save result with sensitive URL query parameters")
+    document: dict[str, object] = spec.model_dump(mode="json", exclude={"environment"})
+    url = f"{spec.url.scheme}://redacted.invalid{spec.url.path or '/'}"
+    if query:
+        url += f"?{query}"
+    document["url"] = url
+    return document
+
+
 def save_result(
     path: Path,
     spec: ExperimentSpec,
@@ -46,9 +68,10 @@ def save_result(
     """Store the inputs and measured values for a future comparison command."""
     result = {
         "schema_version": 1,
-        "experiment": spec.model_dump(mode="json"),
+        "experiment": _safe_experiment_document(spec),
         "measurement": measurement.model_dump(mode="json"),
         "metrics": metrics.model_dump(mode="json"),
+        **build_provenance(spec).model_dump(mode="json"),
     }
     serialized = json.dumps(result, indent=2, allow_nan=False) + "\n"
     if spec.max_result_bytes is not None:

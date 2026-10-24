@@ -7,7 +7,11 @@ import yaml
 from regresslab.core import http_runner
 from regresslab.core.config import ExperimentSpec
 from regresslab.core.metrics import calculate_metrics
-from regresslab.core.saved_results import save_result, validate_experiment_compatibility
+from regresslab.core.saved_results import (
+    _safe_experiment_document,
+    save_result,
+    validate_experiment_compatibility,
+)
 from regresslab.core.series_manifest import SavedResultPair, SeriesManifest
 
 
@@ -29,6 +33,8 @@ async def run_series(
     if repeats < 1:
         raise ValueError("repeats must be a positive integer")
     validate_experiment_compatibility(baseline, candidate)
+    _safe_experiment_document(baseline)
+    _safe_experiment_document(candidate)
     # This is also the exclusive reservation: even an empty directory is rejected.
     output_dir.mkdir(parents=True, exist_ok=False)
     pairs: list[SavedResultPair] = []

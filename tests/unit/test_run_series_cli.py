@@ -77,12 +77,12 @@ def test_alternating_runs_produce_portable_manifest(
     manifest = load_series_manifest(output / "pairs.yaml")
     assert [pair.id for pair in manifest.pairs] == ["pair-0001", "pair-0002", "pair-0003"]
     for pair in manifest.pairs:
-        for label, port, latency in (("baseline", 8000, 10.0), ("candidate", 8001, 30.0)):
+        for label, latency in (("baseline", 10.0), ("candidate", 30.0)):
             relative = getattr(pair, label)
             assert not Path(relative).is_absolute()
             document = json.loads((output / relative).read_text())
             assert document["schema_version"] == 1
-            assert document["experiment"]["url"] == f"http://localhost:{port}/orders"
+            assert document["experiment"]["url"] == "http://redacted.invalid/orders"
             assert document["measurement"]["request_count"] == 2
             assert document["metrics"]["p95_ms"] == latency
     assert len(list(output.glob("*.json"))) == 6

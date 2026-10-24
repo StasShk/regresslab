@@ -53,6 +53,17 @@ configure `max_requests`, `max_concurrency`, and `max_result_bytes` as safety
 caps. Defaults preserve earlier behavior. See the
 [execution budgets guide](docs/execution-budgets.md).
 
+## Environment provenance
+
+Optional `environment` identifiers in the experiment YAML are attached to saved
+results along with automatically detected OS, architecture, Python version,
+RegressLab version, and a deterministic SHA-256 configuration fingerprint.
+The comparison commands warn about testbed differences; add
+`--strict-environment` to reject missing or mismatched testbed metadata. Code
+and service revisions are intentionally allowed to differ between baseline
+and candidate. See [environment provenance](docs/environment-provenance.md) for
+examples, privacy limits, and compatibility behavior.
+
 ## Compare saved benchmark results
 
 Save benchmark runs with `regresslab run experiment.yaml --output run.json`,

@@ -4,6 +4,8 @@ from typing import Annotated, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StringConstraints, model_validator
 
+from regresslab.core.provenance import EnvironmentMetadata
+
 
 class ExperimentSpec(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -21,6 +23,8 @@ class ExperimentSpec(BaseModel):
     max_requests: int | None = Field(default=None, gt=0, strict=True)
     max_concurrency: int | None = Field(default=None, gt=0, strict=True)
     max_result_bytes: int | None = Field(default=None, gt=0, strict=True)
+    # Stored at result top-level, never duplicated in the experiment workload.
+    environment: EnvironmentMetadata | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def enforce_execution_budgets(self) -> Self:

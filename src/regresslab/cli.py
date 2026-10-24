@@ -21,7 +21,8 @@ from regresslab.core.config import ExperimentSpec, load_experiment
 from regresslab.core.http_runner import run_experiment
 from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
 from regresslab.core.models import Measurement
-from regresslab.core.saved_results import new_result_file
+from regresslab.core.provenance import environment_warnings, load_provenance
+from regresslab.core.saved_results import _safe_experiment_document, new_result_file
 from regresslab.core.saved_results import (
     save_result as _save_result,
 )
@@ -159,10 +160,13 @@ def _thresholds_from_args(args: argparse.Namespace) -> RegressionThresholds:
 
 
 def _load_saved_series(
-    manifest_path: Path, *, require_unique_sources: bool = False
+    manifest_path: Path, *, require_unique_sources: bool = False, strict_environment: bool = False
 ) -> tuple[BenchmarkPair, ...]:
     manifest = load_series_manifest(manifest_path)
     reference_spec: ExperimentSpec | None = None
+    reference_baseline: Path | None = None
+    reference_candidate: Path | None = None
+    warnings: set[str] = set()
     pairs: list[BenchmarkPair] = []
     # Repeated input files are fine for a descriptive report, but cannot count
     # as independent observations for a statistical gate. Resolve symlinks and
@@ -187,13 +191,38 @@ def _load_saved_series(
             if reference_spec is not None:
                 _validate_experiment_compatibility(reference_spec, baseline_spec)
                 _validate_experiment_compatibility(reference_spec, candidate_spec)
+            warnings.update(
+                environment_warnings(
+                    load_provenance(baseline_path),
+                    load_provenance(candidate_path),
+                    strict=strict_environment,
+                )
+            )
+            # The same baseline/candidate revision may be measured over many pairs;
+            # check runner consistency within each role across the series, too.
+            if reference_baseline is not None and reference_candidate is not None:
+                for first, second in (
+                    (reference_baseline, baseline_path),
+                    (reference_candidate, candidate_path),
+                ):
+                    warnings.update(
+                        environment_warnings(
+                            load_provenance(first),
+                            load_provenance(second),
+                            strict=strict_environment,
+                        )
+                    )
         except ValueError as exc:
             raise ValueError(f"pair {item.id!r}: {exc}") from exc
         if reference_spec is None:
             reference_spec = baseline_spec
+            reference_baseline = baseline_path
+            reference_candidate = candidate_path
         pairs.append(
             BenchmarkPair(pair_id=item.id, baseline=baseline_metrics, candidate=candidate_metrics)
         )
+    for message in sorted(warnings):
+        print(f"regresslab: warning: {message}", file=sys.stderr)
     return tuple(pairs)
 
 
@@ -281,7 +310,11 @@ def _compare_saved_series(args: argparse.Namespace) -> int:
         thresholds = _thresholds_from_args(args)
         if not args.gate and (args.min_pairs is not None or args.confidence is not None):
             raise ValueError("--min-pairs and --confidence require --gate")
-        pairs = _load_saved_series(args.manifest, require_unique_sources=args.gate)
+        pairs = _load_saved_series(
+            args.manifest,
+            require_unique_sources=args.gate,
+            strict_environment=args.strict_environment,
+        )
         result = compare_series(pairs, thresholds)
         gate = (
             gate_series(
@@ -348,6 +381,12 @@ def _compare_saved_results(args: argparse.Namespace) -> int:
         baseline_spec, baseline_metrics = _load_saved_result(args.baseline)
         candidate_spec, candidate_metrics = _load_saved_result(args.candidate)
         _validate_experiment_compatibility(baseline_spec, candidate_spec)
+        for message in environment_warnings(
+            load_provenance(args.baseline),
+            load_provenance(args.candidate),
+            strict=args.strict_environment,
+        ):
+            print(f"regresslab: warning: {message}", file=sys.stderr)
         result = compare_metrics(baseline_metrics, candidate_metrics, thresholds)
     except (OSError, TypeError, ValueError) as exc:
         print(f"regresslab: {exc}", file=sys.stderr)
@@ -430,6 +469,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     compare.add_argument("baseline", type=Path, help="Baseline JSON from run --output")
     compare.add_argument("candidate", type=Path, help="Candidate JSON from run --output")
+    compare.add_argument(
+        "--strict-environment",
+        action="store_true",
+        help="Reject missing or mismatched testbed provenance",
+    )
     _add_threshold_arguments(compare)
     compare_series_command = commands.add_parser(
         "compare-series",
@@ -448,6 +492,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Save the descriptive series report as JSON (file must not exist)",
     )
     _add_threshold_arguments(compare_series_command)
+    compare_series_command.add_argument(
+        "--strict-environment",
+        action="store_true",
+        help="Reject missing or mismatched testbed provenance",
+    )
     compare_series_command.add_argument(
         "--gate", action="store_true", help="Enable the statistical series-level decision"
     )
@@ -474,6 +523,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         spec = load_experiment(args.config)
+        if args.output is not None:
+            _safe_experiment_document(spec)  # Validate before sending HTTP requests.
         if args.output is not None and args.output.resolve() == args.config.resolve():
             raise ValueError("output path must differ from the experiment config path")
 

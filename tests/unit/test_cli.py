@@ -64,7 +64,7 @@ def test_run_displays_metrics_and_saves_json(
     saved = json.loads(output.read_text(encoding="utf-8"))
     assert saved["schema_version"] == 1
     assert saved["experiment"]["name"] == "sample"
-    assert saved["experiment"]["url"] == "http://localhost:8000/health"
+    assert saved["experiment"]["url"] == "http://redacted.invalid/health"
     assert saved["experiment"]["requests"] == 4
     assert saved["measurement"]["latencies_ms"] == [10.0, 20.0, 30.0]
     assert saved["measurement"]["successful_requests"] == 3

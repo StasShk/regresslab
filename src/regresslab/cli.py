@@ -144,22 +144,30 @@ def _load_saved_series(
     reference_candidate: SavedBenchmarkResult | None = None
     warnings: set[str] = set()
     pairs: list[BenchmarkPair] = []
-    # Repeated input files are fine for a descriptive report, but cannot count
-    # as independent observations for a statistical gate. Resolve symlinks and
-    # relative path aliases so spelling changes cannot bypass this check.
+    # Repeated inputs are fine for descriptive reports, but not statistical gates.
+    # Resolve path aliases and detect hard links to the same underlying file.
     source_owners: dict[Path, str] = {}
+    inode_owners: dict[tuple[int, int], str] = {}
     for item in manifest.pairs:
         baseline_path = manifest_path.parent / item.baseline
         candidate_path = manifest_path.parent / item.candidate
         if require_unique_sources:
             for role, path in (("baseline", baseline_path), ("candidate", candidate_path)):
                 canonical = path.resolve()
-                if previous_owner := source_owners.get(canonical):
+                stat = path.stat()  # Follows symlinks; hard links share device/inode.
+                identity = (stat.st_dev, stat.st_ino)
+                previous_owner = source_owners.get(canonical)
+                if previous_owner is None and stat.st_ino:
+                    previous_owner = inode_owners.get(identity)
+                if previous_owner is not None:
                     raise ValueError(
                         f"statistical gate requires distinct result files: {path} "
                         f"(pair {item.id!r} {role}) reuses {previous_owner}"
                     )
-                source_owners[canonical] = f"pair {item.id!r} {role}"
+                owner = f"pair {item.id!r} {role}"
+                source_owners[canonical] = owner
+                if stat.st_ino:  # An inode of zero may mean the filesystem cannot report one.
+                    inode_owners[identity] = owner
         baseline_result = load_saved_result(baseline_path)
         candidate_result = load_saved_result(candidate_path)
         if require_unique_sources and not allow_legacy_metrics:

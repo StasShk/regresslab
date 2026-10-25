@@ -148,6 +148,30 @@ def test_gate_rejects_source_path_alias(tmp_path: Path) -> None:
     assert gate_cli(["compare-series", str(manifest), "--gate"]) == 2
 
 
+@pytest.mark.parametrize("across_pairs", [False, True])
+def test_gate_rejects_hard_linked_results(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], across_pairs: bool
+) -> None:
+    original = tmp_path / "original.json"
+    save_result(original)
+    (tmp_path / "alias.json").hardlink_to(original)
+    save_result(tmp_path / "other.json")
+    if across_pairs:
+        save_result(tmp_path / "another.json")
+        pairs = [
+            ("one", "original.json", "other.json"),
+            ("two", "alias.json", "another.json"),
+        ]
+    else:
+        pairs = [("one", "original.json", "alias.json")]
+    manifest = write_manifest(tmp_path / "pairs.yaml", pairs)
+
+    assert gate_cli(["compare-series", str(manifest), "--gate"]) == 2
+    assert "reuses pair 'one' baseline" in capsys.readouterr().err
+    # Descriptive reports may intentionally reuse observations.
+    assert cli.main(["compare-series", str(manifest)]) == 0
+
+
 def test_descriptive_mode_preserves_exit_code_and_json(tmp_path: Path) -> None:
     manifest = _series(tmp_path, p95=125)
     output = tmp_path / "report.json"

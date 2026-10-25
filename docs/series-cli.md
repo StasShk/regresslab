@@ -115,9 +115,10 @@ A positive value means worse performance for every metric.
 Independent and comparably distributed *run pairs* are assumed. To prevent
 accidentally treating the same saved run as several independent observations,
 `--gate` requires every baseline and candidate result file in the manifest to
-be distinct (including across pairs and through symlinks/path aliases). Reuse
-of any input file is an `ERROR` (exit `2`); descriptive comparisons remain
-unaffected. Different files do not prove statistical independence: the caller
+be distinct (including across pairs, symlinks/path aliases, and hard links
+when the filesystem provides inode identity). Reuse of an input file is an
+`ERROR` (exit `2`); descriptive comparisons remain unaffected. Different
+files do not prove statistical independence: the caller
 must still run independent, comparable measurements.
 
 The gate uses

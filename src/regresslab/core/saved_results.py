@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl
 from regresslab.core.config import ExperimentSpec
 from regresslab.core.metrics import BenchmarkMetrics
 from regresslab.core.models import Measurement
+from regresslab.core.output_sanitization import safe_failure_summary
 from regresslab.core.provenance import build_provenance
 
 
@@ -66,10 +67,16 @@ def save_result(
     metrics: BenchmarkMetrics,
 ) -> None:
     """Store the inputs and measured values for a future comparison command."""
+    # Protect callers supplying their own Measurement, not just the HTTP runner.
+    # Never persist an arbitrary exception message or URL in failure_detail.
+    measurement_document = measurement.model_dump(mode="json")
+    measurement_document["failure_detail"] = safe_failure_summary(
+        measurement.failed_requests, measurement.failure_detail
+    )
     result = {
         "schema_version": 1,
         "experiment": _safe_experiment_document(spec),
-        "measurement": measurement.model_dump(mode="json"),
+        "measurement": measurement_document,
         "metrics": metrics.model_dump(mode="json"),
         **build_provenance(spec).model_dump(mode="json"),
     }

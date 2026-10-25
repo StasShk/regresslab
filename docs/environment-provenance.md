@@ -75,9 +75,17 @@ through any of these fields.
 Newly saved result JSON redacts the original benchmark URL's hostname, port,
 username, password and fragment, replacing the endpoint with `redacted.invalid`.
 The original `name`, URL path and ordinary query parameters remain, because
-they are part of the workload comparison contract. Obvious authentication query
-keys (such as `token`, `password`, `secret`, `api_key`, and `authorization`) are
-rejected before sending benchmark traffic when saving results. This filter
+they are part of the workload comparison contract. The `run` terminal report
+shows only the URL scheme and `[redacted]`, never the configured target address.
+Handled HTTPX request-exception messages are not printed or persisted: diagnostics
+retain only an allowlisted error class (such as `ReadTimeout` or `ConnectError`)
+or HTTP status (such as `HTTP 503`). Even when a caller supplies a custom `Measurement`,
+unknown `failure_detail` text is replaced with `redacted` before it is printed
+or saved. Previously saved JSON is not rewritten.
+
+Obvious authentication query keys (such as `token`, `password`, `secret`,
+`api_key`, and `authorization`) are rejected before sending benchmark traffic
+when saving results. This filter
 **cannot detect arbitrary secrets in innocuous query keys, paths or names**.
 Therefore, do not put secrets in benchmark configuration or publish result files
 without reviewing them first. Previously saved artifacts are unchanged and may

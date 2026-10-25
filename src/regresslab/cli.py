@@ -20,6 +20,7 @@ from regresslab.core.config import ExperimentSpec, load_experiment
 from regresslab.core.http_runner import run_experiment
 from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
 from regresslab.core.models import Measurement
+from regresslab.core.output_sanitization import safe_failure_summary
 from regresslab.core.provenance import environment_warnings
 from regresslab.core.result_loader import SavedBenchmarkResult, load_saved_result
 from regresslab.core.saved_results import _safe_experiment_document, new_result_file
@@ -52,7 +53,8 @@ def _print_report(
     metrics: BenchmarkMetrics,
 ) -> None:
     print(f"Experiment: {spec.name}")
-    print(f"Target: {spec.url}")
+    # The original URL may contain userinfo, private hosts, paths or tokens.
+    print(f"Target: {spec.url.scheme}://[redacted]")
     print(
         f"Requests: {measurement.request_count} total, "
         f"{measurement.successful_requests} successful, "
@@ -64,8 +66,9 @@ def _print_report(
     print(f"p99: {_format_metric(metrics.p99_ms, ' ms')}")
     print(f"Successful throughput: {_format_metric(metrics.successful_throughput_rps, ' req/s')}")
     print(f"Error rate: {_format_metric(metrics.error_rate, '%', scale=100)}")
-    if measurement.failure_detail is not None:
-        print(f"Failures: {measurement.failure_detail}")
+    summary = safe_failure_summary(measurement.failed_requests, measurement.failure_detail)
+    if summary is not None:
+        print(f"Failures: {summary}")
 
 
 def _format_change(comparison: MetricComparison, *, points: bool = False) -> str:

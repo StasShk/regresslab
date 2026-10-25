@@ -5,6 +5,7 @@ import httpx
 
 from regresslab.core.config import ExperimentSpec
 from regresslab.core.models import Measurement, RequestResult
+from regresslab.core.output_sanitization import safe_request_error_name
 
 
 async def measure_http_get(
@@ -18,7 +19,8 @@ async def measure_http_get(
     try:
         response = await client.get(url, follow_redirects=False)
     except httpx.RequestError as exc:
-        failure_detail = f"{type(exc).__name__}: {exc}"
+        # HTTPX messages can contain full URLs, proxy addresses and credentials.
+        failure_detail = safe_request_error_name(exc)
     else:
         if not response.is_success:
             failure_detail = f"HTTP {response.status_code}"

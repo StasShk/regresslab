@@ -39,6 +39,7 @@ from regresslab.core.series import (
 from regresslab.core.series_manifest import load_series_manifest
 from regresslab.core.series_runner import run_series
 from regresslab.core.statistical_gate import StatisticalGateResult, gate_series
+from regresslab.core.validation_errors import safe_cli_exception
 
 
 def _format_metric(value: float | None, suffix: str, *, scale: float = 1.0) -> str:
@@ -422,7 +423,7 @@ def _run_series_command(args: argparse.Namespace) -> int:
         )
         return 130
     except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
-        print(f"regresslab: {exc}", file=sys.stderr)
+        print(f"regresslab: {safe_cli_exception(exc)}", file=sys.stderr)
         return 2
 
     print(f"Saved series manifest: {manifest} ({args.repeats} pairs)")
@@ -538,7 +539,7 @@ def main(argv: list[str] | None = None) -> int:
             if temporary is not None:
                 _save_result(temporary, spec, measurement, metrics)
     except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
-        print(f"regresslab: {exc}", file=sys.stderr)
+        print(f"regresslab: {safe_cli_exception(exc)}", file=sys.stderr)
         return 1
 
     _print_report(spec, measurement, metrics)

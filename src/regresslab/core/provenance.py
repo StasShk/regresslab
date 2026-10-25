@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from regresslab.core.validation_errors import safe_validation_details
+
 if TYPE_CHECKING:
     from regresslab.core.config import ExperimentSpec
 
@@ -114,7 +116,9 @@ def load_provenance(
     try:
         return ResultProvenance.model_validate({key: document[key] for key in keys})
     except ValidationError as exc:
-        raise ValueError(f"{path}: invalid environment provenance: {exc}") from exc
+        raise ValueError(
+            f"{path}: invalid environment provenance: {safe_validation_details(exc)}"
+        ) from exc
 
 
 def environment_warnings(
@@ -140,17 +144,11 @@ def environment_warnings(
         before = getattr(baseline.environment, field)
         after = getattr(candidate.environment, field)
         if before != after:
-            differences.append(
-                f"environment.{field} differs (baseline={before!r}, candidate={after!r})"
-            )
+            differences.append(f"environment.{field} differs")
     if baseline.config_fingerprint != candidate.config_fingerprint:
         differences.append("config_fingerprint differs")
     if baseline.regresslab_version != candidate.regresslab_version:
-        differences.append(
-            "regresslab_version differs "
-            f"(baseline={baseline.regresslab_version!r}, "
-            f"candidate={candidate.regresslab_version!r})"
-        )
+        differences.append("regresslab_version differs")
     if strict and differences:
         raise ValueError("incompatible testbed: " + "; ".join(differences))
     return tuple(differences)

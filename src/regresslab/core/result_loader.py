@@ -16,6 +16,7 @@ from regresslab.core.config import ExperimentSpec
 from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
 from regresslab.core.models import Measurement
 from regresslab.core.provenance import ResultProvenance, load_provenance
+from regresslab.core.validation_errors import safe_validation_details
 
 # A tiny absolute tolerance covers zero/round-off without permitting meaningful
 # drift at typical benchmark scales. Finite values and nulls are checked first.
@@ -49,7 +50,7 @@ def _validate_measurement(path: Path, raw: object) -> Measurement:
     try:
         return Measurement.model_validate(data, strict=True)
     except ValidationError as exc:
-        raise ValueError(f"{path}: invalid measurement: {exc}") from exc
+        raise ValueError(f"{path}: invalid measurement: {safe_validation_details(exc)}") from exc
 
 
 def _matching_value(expected: float | None, actual: float | None) -> bool:
@@ -99,14 +100,14 @@ def load_saved_result(path: Path) -> SavedBenchmarkResult:
     try:
         metrics = BenchmarkMetrics.model_validate(document["metrics"], strict=True)
     except ValidationError as exc:
-        raise ValueError(f"{path}: invalid metrics: {exc}") from exc
+        raise ValueError(f"{path}: invalid metrics: {safe_validation_details(exc)}") from exc
 
     if not isinstance(document.get("experiment"), dict):
         raise TypeError(f"{path}: missing or invalid experiment object")
     try:
         experiment = ExperimentSpec.model_validate(document["experiment"])
     except ValidationError as exc:
-        raise ValueError(f"{path}: invalid experiment: {exc}") from exc
+        raise ValueError(f"{path}: invalid experiment: {safe_validation_details(exc)}") from exc
 
     measurement: Measurement | None = None
     if "measurement" in document:

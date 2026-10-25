@@ -109,7 +109,5 @@ def validate_experiment_compatibility(
     )
     for field, before, after in checks:
         if before != after:
-            raise ValueError(
-                f"incompatible experiments: {field} differs "
-                f"(baseline={before!r}, candidate={after!r})"
-            )
+            # Configuration values can include private URLs, paths and identifiers.
+            raise ValueError(f"incompatible experiments: {field} differs")

@@ -13,6 +13,8 @@ from pydantic import (
     model_validator,
 )
 
+from regresslab.core.validation_errors import safe_cli_exception, safe_validation_details
+
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -41,9 +43,14 @@ class SeriesManifest(BaseModel):
 
 def load_series_manifest(path: Path) -> SeriesManifest:
     """Load a series manifest, retaining the order of its explicit pairs."""
-    with path.open(encoding="utf-8") as stream:
-        data = yaml.safe_load(stream)
+    try:
+        with path.open(encoding="utf-8") as stream:
+            data = yaml.safe_load(stream)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{path}: invalid series manifest: {safe_cli_exception(exc)}") from exc
     try:
         return SeriesManifest.model_validate(data)
     except ValidationError as exc:
-        raise ValueError(f"{path}: invalid series manifest: {exc}") from exc
+        raise ValueError(
+            f"{path}: invalid series manifest: {safe_validation_details(exc)}"
+        ) from exc

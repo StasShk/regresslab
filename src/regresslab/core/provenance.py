@@ -94,12 +94,15 @@ def build_provenance(spec: ExperimentSpec) -> ResultProvenance:
     )
 
 
-def load_provenance(path: Path) -> ResultProvenance | None:
-    """Read provenance from a saved result; permit entirely legacy files."""
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{path}: invalid JSON ({exc.msg})") from exc
+def load_provenance(
+    path: Path, *, document: dict[str, object] | None = None
+) -> ResultProvenance | None:
+    """Read provenance; a validated document avoids a second file read."""
+    if document is None:
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{path}: invalid JSON ({exc.msg})") from exc
     if not isinstance(document, dict):
         raise TypeError(f"{path}: expected a JSON object")
     keys = {"environment", "config_fingerprint", "regresslab_version"}

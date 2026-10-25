@@ -8,7 +8,6 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import yaml
-from pydantic import ValidationError
 
 from regresslab.core.compare import (
     ComparisonResult,
@@ -21,7 +20,8 @@ from regresslab.core.config import ExperimentSpec, load_experiment
 from regresslab.core.http_runner import run_experiment
 from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
 from regresslab.core.models import Measurement
-from regresslab.core.provenance import environment_warnings, load_provenance
+from regresslab.core.provenance import environment_warnings
+from regresslab.core.result_loader import SavedBenchmarkResult, load_saved_result
 from regresslab.core.saved_results import _safe_experiment_document, new_result_file
 from regresslab.core.saved_results import (
     save_result as _save_result,
@@ -66,34 +66,6 @@ def _print_report(
     print(f"Error rate: {_format_metric(metrics.error_rate, '%', scale=100)}")
     if measurement.failure_detail is not None:
         print(f"Failures: {measurement.failure_detail}")
-
-
-def _load_saved_result(path: Path) -> tuple[ExperimentSpec, BenchmarkMetrics]:
-    """Load experiment settings and metrics from a saved benchmark result."""
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{path}: invalid JSON ({exc.msg})") from exc
-
-    if not isinstance(document, dict):
-        raise TypeError(f"{path}: expected a JSON object")
-    if type(document.get("schema_version")) is not int or document["schema_version"] != 1:
-        raise ValueError(f"{path}: unsupported schema_version (expected 1)")
-    if not isinstance(document.get("metrics"), dict):
-        raise TypeError(f"{path}: missing or invalid metrics object")
-    try:
-        metrics = BenchmarkMetrics.model_validate(document["metrics"])
-    except ValidationError as exc:
-        raise ValueError(f"{path}: invalid metrics: {exc}") from exc
-
-    if not isinstance(document.get("experiment"), dict):
-        raise TypeError(f"{path}: missing or invalid experiment object")
-    try:
-        experiment = ExperimentSpec.model_validate(document["experiment"])
-    except ValidationError as exc:
-        raise ValueError(f"{path}: invalid experiment: {exc}") from exc
-
-    return experiment, metrics
 
 
 def _format_change(comparison: MetricComparison, *, points: bool = False) -> str:
@@ -160,12 +132,16 @@ def _thresholds_from_args(args: argparse.Namespace) -> RegressionThresholds:
 
 
 def _load_saved_series(
-    manifest_path: Path, *, require_unique_sources: bool = False, strict_environment: bool = False
+    manifest_path: Path,
+    *,
+    require_unique_sources: bool = False,
+    strict_environment: bool = False,
+    allow_legacy_metrics: bool = False,
 ) -> tuple[BenchmarkPair, ...]:
     manifest = load_series_manifest(manifest_path)
     reference_spec: ExperimentSpec | None = None
-    reference_baseline: Path | None = None
-    reference_candidate: Path | None = None
+    reference_baseline: SavedBenchmarkResult | None = None
+    reference_candidate: SavedBenchmarkResult | None = None
     warnings: set[str] = set()
     pairs: list[BenchmarkPair] = []
     # Repeated input files are fine for a descriptive report, but cannot count
@@ -184,8 +160,17 @@ def _load_saved_series(
                         f"(pair {item.id!r} {role}) reuses {previous_owner}"
                     )
                 source_owners[canonical] = f"pair {item.id!r} {role}"
-        baseline_spec, baseline_metrics = _load_saved_result(baseline_path)
-        candidate_spec, candidate_metrics = _load_saved_result(candidate_path)
+        baseline_result = load_saved_result(baseline_path)
+        candidate_result = load_saved_result(candidate_path)
+        if require_unique_sources and not allow_legacy_metrics:
+            for role, saved in (("baseline", baseline_result), ("candidate", candidate_result)):
+                if saved.measurement is None:
+                    raise ValueError(
+                        f"pair {item.id!r} {role}: statistical gate requires measurement data "
+                        "(use --allow-legacy-metrics to trust metrics-only results)"
+                    )
+        baseline_spec, baseline_metrics = baseline_result.experiment, baseline_result.metrics
+        candidate_spec, candidate_metrics = candidate_result.experiment, candidate_result.metrics
         try:
             _validate_experiment_compatibility(baseline_spec, candidate_spec)
             if reference_spec is not None:
@@ -193,22 +178,21 @@ def _load_saved_series(
                 _validate_experiment_compatibility(reference_spec, candidate_spec)
             warnings.update(
                 environment_warnings(
-                    load_provenance(baseline_path),
-                    load_provenance(candidate_path),
+                    baseline_result.provenance,
+                    candidate_result.provenance,
                     strict=strict_environment,
                 )
             )
-            # The same baseline/candidate revision may be measured over many pairs;
-            # check runner consistency within each role across the series, too.
+            # Check runner consistency within each role across the series.
             if reference_baseline is not None and reference_candidate is not None:
                 for first, second in (
-                    (reference_baseline, baseline_path),
-                    (reference_candidate, candidate_path),
+                    (reference_baseline, baseline_result),
+                    (reference_candidate, candidate_result),
                 ):
                     warnings.update(
                         environment_warnings(
-                            load_provenance(first),
-                            load_provenance(second),
+                            first.provenance,
+                            second.provenance,
                             strict=strict_environment,
                         )
                     )
@@ -216,8 +200,8 @@ def _load_saved_series(
             raise ValueError(f"pair {item.id!r}: {exc}") from exc
         if reference_spec is None:
             reference_spec = baseline_spec
-            reference_baseline = baseline_path
-            reference_candidate = candidate_path
+            reference_baseline = baseline_result
+            reference_candidate = candidate_result
         pairs.append(
             BenchmarkPair(pair_id=item.id, baseline=baseline_metrics, candidate=candidate_metrics)
         )
@@ -310,10 +294,13 @@ def _compare_saved_series(args: argparse.Namespace) -> int:
         thresholds = _thresholds_from_args(args)
         if not args.gate and (args.min_pairs is not None or args.confidence is not None):
             raise ValueError("--min-pairs and --confidence require --gate")
+        if args.allow_legacy_metrics and not args.gate:
+            raise ValueError("--allow-legacy-metrics requires --gate")
         pairs = _load_saved_series(
             args.manifest,
             require_unique_sources=args.gate,
             strict_environment=args.strict_environment,
+            allow_legacy_metrics=args.allow_legacy_metrics,
         )
         result = compare_series(pairs, thresholds)
         gate = (
@@ -378,16 +365,16 @@ def _add_threshold_arguments(parser: argparse.ArgumentParser) -> None:
 def _compare_saved_results(args: argparse.Namespace) -> int:
     try:
         thresholds = _thresholds_from_args(args)
-        baseline_spec, baseline_metrics = _load_saved_result(args.baseline)
-        candidate_spec, candidate_metrics = _load_saved_result(args.candidate)
-        _validate_experiment_compatibility(baseline_spec, candidate_spec)
+        baseline_result = load_saved_result(args.baseline)
+        candidate_result = load_saved_result(args.candidate)
+        _validate_experiment_compatibility(baseline_result.experiment, candidate_result.experiment)
         for message in environment_warnings(
-            load_provenance(args.baseline),
-            load_provenance(args.candidate),
+            baseline_result.provenance,
+            candidate_result.provenance,
             strict=args.strict_environment,
         ):
             print(f"regresslab: warning: {message}", file=sys.stderr)
-        result = compare_metrics(baseline_metrics, candidate_metrics, thresholds)
+        result = compare_metrics(baseline_result.metrics, candidate_result.metrics, thresholds)
     except (OSError, TypeError, ValueError) as exc:
         print(f"regresslab: {exc}", file=sys.stderr)
         return 2
@@ -499,6 +486,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     compare_series_command.add_argument(
         "--gate", action="store_true", help="Enable the statistical series-level decision"
+    )
+    compare_series_command.add_argument(
+        "--allow-legacy-metrics",
+        action="store_true",
+        help="Explicitly trust metrics-only inputs in --gate (otherwise rejected)",
     )
     compare_series_command.add_argument(
         "--min-pairs",

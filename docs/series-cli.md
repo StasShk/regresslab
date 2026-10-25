@@ -87,6 +87,14 @@ caveats.
 
 ## Optional statistical gate
 
+Saved JSON files containing `measurement` are validated by recomputing all
+metrics before comparisons. Metrics-only legacy results remain usable for
+reports, but the statistical gate rejects them by default. Add
+`--allow-legacy-metrics` with `--gate` only when you explicitly trust these
+unverifiable older files. Malformed or inconsistent measurements always fail
+with exit code `2`, even with this override. See
+[result integrity](result-integrity.md).
+
 `compare-series` remains descriptive unless `--gate` is supplied. To turn the
 same saved matched pairs into a CI gate:
 

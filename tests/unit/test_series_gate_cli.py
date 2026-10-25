@@ -10,6 +10,11 @@ from regresslab.core.config import ExperimentSpec
 from regresslab.core.metrics import BenchmarkMetrics
 
 
+def gate_cli(argv: list[str]) -> int:
+    """Older fixture files are metrics-only; explicitly permit them for gate tests."""
+    return cli.main([*argv, "--allow-legacy-metrics"] if "--gate" in argv else argv)
+
+
 def save_result(
     path: Path,
     *,
@@ -72,7 +77,7 @@ def _series(
 def test_gate_pass_with_json_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     manifest = _series(tmp_path)
     output = tmp_path / "gate.json"
-    assert cli.main(["compare-series", str(manifest), "--gate", "--output", str(output)]) == 0
+    assert gate_cli(["compare-series", str(manifest), "--gate", "--output", str(output)]) == 0
     document = json.loads(output.read_text(encoding="utf-8"))
     assert document["schema_version"] == 1
     assert document["series"]["pairs"][0]["pair_id"] == "pair-0"
@@ -84,12 +89,12 @@ def test_gate_pass_with_json_output(tmp_path: Path, capsys: pytest.CaptureFixtur
 @pytest.mark.parametrize("changes", [{"p95": 125}, {"throughput": 70}, {"error_rate": 0.04}])
 def test_gate_regression_returns_one(tmp_path: Path, changes: dict[str, float]) -> None:
     manifest = _series(tmp_path, **changes)
-    assert cli.main(["compare-series", str(manifest), "--gate"]) == 1
+    assert gate_cli(["compare-series", str(manifest), "--gate"]) == 1
 
 
 def test_gate_insufficient_pairs_never_passes(tmp_path: Path) -> None:
     manifest = _series(tmp_path, count=7)
-    assert cli.main(["compare-series", str(manifest), "--gate"]) == 3
+    assert gate_cli(["compare-series", str(manifest), "--gate"]) == 3
 
 
 def test_gate_undefined_throughput_is_inconclusive(tmp_path: Path) -> None:
@@ -100,12 +105,12 @@ def test_gate_undefined_throughput_is_inconclusive(tmp_path: Path) -> None:
         save_result(tmp_path / after, throughput=0)
         paths.append((f"pair-{i}", before, after))
     manifest = write_manifest(tmp_path / "pairs.yaml", paths)
-    assert cli.main(["compare-series", str(manifest), "--gate"]) == 3
+    assert gate_cli(["compare-series", str(manifest), "--gate"]) == 3
 
 
 def test_gate_missing_p95_is_inconclusive(tmp_path: Path) -> None:
     manifest = _series(tmp_path, p95=None)
-    assert cli.main(["compare-series", str(manifest), "--gate"]) == 3
+    assert gate_cli(["compare-series", str(manifest), "--gate"]) == 3
 
 
 def test_gate_rejects_reusing_baseline_across_pairs(
@@ -119,7 +124,7 @@ def test_gate_rejects_reusing_baseline_across_pairs(
         paths.append((f"pair-{i}", "baseline.json", name))
     manifest = write_manifest(tmp_path / "pairs.yaml", paths)
     output = tmp_path / "report.json"
-    assert cli.main(["compare-series", str(manifest), "--gate", "--output", str(output)]) == 2
+    assert gate_cli(["compare-series", str(manifest), "--gate", "--output", str(output)]) == 2
     assert "reuses pair 'pair-0' baseline" in capsys.readouterr().err
     assert not output.exists()
     # A descriptive report has never required independently sourced runs.
@@ -129,7 +134,7 @@ def test_gate_rejects_reusing_baseline_across_pairs(
 def test_gate_rejects_same_result_on_both_sides(tmp_path: Path) -> None:
     save_result(tmp_path / "result.json")
     manifest = write_manifest(tmp_path / "pairs.yaml", [("same", "result.json", "result.json")])
-    assert cli.main(["compare-series", str(manifest), "--gate"]) == 2
+    assert gate_cli(["compare-series", str(manifest), "--gate"]) == 2
 
 
 def test_gate_rejects_source_path_alias(tmp_path: Path) -> None:
@@ -140,13 +145,13 @@ def test_gate_rejects_source_path_alias(tmp_path: Path) -> None:
         tmp_path / "pairs.yaml",
         [("one", "original.json", "other.json"), ("two", "alias.json", "other.json")],
     )
-    assert cli.main(["compare-series", str(manifest), "--gate"]) == 2
+    assert gate_cli(["compare-series", str(manifest), "--gate"]) == 2
 
 
 def test_descriptive_mode_preserves_exit_code_and_json(tmp_path: Path) -> None:
     manifest = _series(tmp_path, p95=125)
     output = tmp_path / "report.json"
-    assert cli.main(["compare-series", str(manifest), "--output", str(output)]) == 0
+    assert gate_cli(["compare-series", str(manifest), "--output", str(output)]) == 0
     assert "gate" not in json.loads(output.read_text(encoding="utf-8"))
 
 
@@ -170,23 +175,23 @@ def test_gate_accepts_configuration(tmp_path: Path) -> None:
         "--output",
         str(output),
     ]
-    assert cli.main(argv) == 0
+    assert gate_cli(argv) == 0
     assert json.loads(output.read_text(encoding="utf-8"))["gate"]["min_pairs"] == 12
 
 
 @pytest.mark.parametrize("confidence", ["0", "1", "nan", "inf"])
 def test_invalid_confidence_is_error(tmp_path: Path, confidence: str) -> None:
     manifest = _series(tmp_path)
-    assert cli.main(["compare-series", str(manifest), "--gate", "--confidence", confidence]) == 2
+    assert gate_cli(["compare-series", str(manifest), "--gate", "--confidence", confidence]) == 2
 
 
 def test_gate_settings_without_gate_are_error(tmp_path: Path) -> None:
     manifest = _series(tmp_path)
-    assert cli.main(["compare-series", str(manifest), "--confidence", "0.95"]) == 2
+    assert gate_cli(["compare-series", str(manifest), "--confidence", "0.95"]) == 2
 
 
 def test_gate_output_never_overwrites_input(tmp_path: Path) -> None:
     manifest = _series(tmp_path)
     original = manifest.read_bytes()
-    assert cli.main(["compare-series", str(manifest), "--gate", "--output", str(manifest)]) == 2
+    assert gate_cli(["compare-series", str(manifest), "--gate", "--output", str(manifest)]) == 2
     assert manifest.read_bytes() == original

@@ -97,6 +97,11 @@ def validate_experiment_compatibility(
 ) -> None:
     """Require equivalent workloads, while allowing different hosts and ports."""
     checks = (
+        (
+            "authentication",
+            baseline.bearer_token_env is not None,
+            candidate.bearer_token_env is not None,
+        ),
         ("name", baseline.name, candidate.name),
         ("URL scheme", baseline.url.scheme, candidate.url.scheme),
         ("URL path", baseline.url.path, candidate.url.path),

@@ -3,6 +3,7 @@ from time import perf_counter
 
 import httpx
 
+from regresslab.core.auth import bearer_headers
 from regresslab.core.config import ExperimentSpec
 from regresslab.core.models import Measurement, RequestResult
 from regresslab.core.output_sanitization import safe_request_error_name
@@ -45,6 +46,7 @@ async def run_experiment(spec: ExperimentSpec) -> Measurement:
     A configured duration budget covers warmup, measurement, and client cleanup.
     Exceeding it aborts the entire run instead of returning biased partial data.
     """
+    headers = bearer_headers(spec)
     url = str(spec.url)
     latencies_ms: list[float] = []
     successful_requests = 0
@@ -56,6 +58,7 @@ async def run_experiment(spec: ExperimentSpec) -> Measurement:
         worker_count = min(spec.concurrency, max(spec.requests, spec.warmup_requests))
         async with httpx.AsyncClient(
             timeout=spec.timeout_seconds,
+            headers=headers,
             limits=httpx.Limits(
                 max_connections=worker_count,
                 max_keepalive_connections=worker_count,

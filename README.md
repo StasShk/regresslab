@@ -18,6 +18,14 @@ the final manifest is published only when the entire series completes.
 See [the collection guide](docs/run-series.md) for configuration examples,
 interruption behavior, and limitations.
 
+## Benchmark protected APIs
+
+Set `bearer_token_env: REGRESSLAB_API_TOKEN` in the experiment YAML and supply
+that environment variable through your shell or CI secret store. The runner
+uses the token for warmup and measured requests; saved results contain only
+the variable name. See [Bearer authentication](docs/authentication.md) for
+validation, comparison rules, and failure behavior.
+
 ## Configure HTTP timeouts
 
 Set `timeout_seconds` in the experiment YAML used by `run` or `run-series`:

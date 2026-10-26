@@ -15,6 +15,7 @@ _SAFE_FIELDS = frozenset(
         "concurrency",
         "timeout_seconds",
         "warmup_requests",
+        "bearer_token_env",
         "max_duration_seconds",
         "max_requests",
         "max_concurrency",
@@ -51,6 +52,7 @@ _SAFE_FIELDS = frozenset(
 _SAFE_RULE_MESSAGES = frozenset(
     {
         "pair IDs must be unique",
+        "bearer_token_env cannot be combined with URL credentials",
         "requests + warmup_requests exceeds max_requests",
         "concurrency exceeds max_concurrency",
         # Exact messages emitted by Measurement's model-level invariants.

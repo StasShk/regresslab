@@ -18,6 +18,9 @@ class ExperimentSpec(BaseModel):
     requests: int = Field(gt=0, strict=True)
     concurrency: int = Field(default=1, gt=0, strict=True)
     timeout_seconds: float = Field(default=5.0, gt=0, strict=True, allow_inf_nan=False)
+    bearer_token_env: str | None = Field(
+        default=None, strict=True, max_length=128, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"
+    )
     warmup_requests: int = Field(default=0, ge=0, strict=True)
     max_duration_seconds: float | None = Field(default=None, gt=0, strict=True, allow_inf_nan=False)
     max_requests: int | None = Field(default=None, gt=0, strict=True)
@@ -28,6 +31,8 @@ class ExperimentSpec(BaseModel):
 
     @model_validator(mode="after")
     def enforce_execution_budgets(self) -> Self:
+        if self.bearer_token_env is not None and (self.url.username or self.url.password):
+            raise ValueError("bearer_token_env cannot be combined with URL credentials")
         # Count all outgoing requests, including those excluded from metrics.
         if (
             self.max_requests is not None

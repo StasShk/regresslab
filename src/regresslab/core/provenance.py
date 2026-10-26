@@ -61,6 +61,11 @@ def configuration_fingerprint(spec: ExperimentSpec) -> str:
         mode="json",
         exclude={"environment", "max_requests", "max_concurrency", "max_result_bytes"},
     )
+    # Credential source names and token rotation are not workload identity.
+    # Omit anonymous auth to preserve fingerprints of existing results.
+    config.pop("bearer_token_env", None)
+    if spec.bearer_token_env is not None:
+        config["authentication"] = "bearer"
     config["url"] = {
         "scheme": spec.url.scheme,
         "path": spec.url.path,

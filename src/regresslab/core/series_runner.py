@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 from regresslab.core import http_runner
+from regresslab.core.auth import bearer_headers
 from regresslab.core.config import ExperimentSpec
 from regresslab.core.metrics import calculate_metrics
 from regresslab.core.saved_results import (
@@ -35,6 +36,9 @@ async def run_series(
     validate_experiment_compatibility(baseline, candidate)
     _safe_experiment_document(baseline)
     _safe_experiment_document(candidate)
+    # Check both credentials before collecting even the first baseline.
+    bearer_headers(baseline)
+    bearer_headers(candidate)
     # This is also the exclusive reservation: even an empty directory is rejected.
     output_dir.mkdir(parents=True, exist_ok=False)
     pairs: list[SavedResultPair] = []

@@ -57,14 +57,17 @@ def configuration_fingerprint(spec: ExperimentSpec) -> str:
     served at different addresses. Path and query are included in the digest
     for workload identity, but are never placed in provenance as plain text.
     """
-    config = spec.model_dump(mode="json", exclude={"environment"})
+    config = spec.model_dump(
+        mode="json",
+        exclude={"environment", "max_requests", "max_concurrency", "max_result_bytes"},
+    )
     config["url"] = {
         "scheme": spec.url.scheme,
         "path": spec.url.path,
         "query": spec.url.query,
     }
     canonical = json.dumps(
-        {"fingerprint_version": 1, "config": config},
+        {"fingerprint_version": 2, "config": config},
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
@@ -145,8 +148,6 @@ def environment_warnings(
         after = getattr(candidate.environment, field)
         if before != after:
             differences.append(f"environment.{field} differs")
-    if baseline.config_fingerprint != candidate.config_fingerprint:
-        differences.append("config_fingerprint differs")
     if baseline.regresslab_version != candidate.regresslab_version:
         differences.append("regresslab_version differs")
     if strict and differences:

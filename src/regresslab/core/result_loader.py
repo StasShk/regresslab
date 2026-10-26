@@ -15,7 +15,11 @@ from pydantic import ValidationError
 from regresslab.core.config import ExperimentSpec
 from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
 from regresslab.core.models import Measurement
-from regresslab.core.provenance import ResultProvenance, load_provenance
+from regresslab.core.provenance import (
+    ResultProvenance,
+    configuration_fingerprint,
+    load_provenance,
+)
 from regresslab.core.validation_errors import safe_validation_details
 
 # A tiny absolute tolerance covers zero/round-off without permitting meaningful
@@ -121,6 +125,10 @@ def load_saved_result(path: Path) -> SavedBenchmarkResult:
         _verify_derived_metrics(path, measurement, metrics)
 
     provenance = load_provenance(path, document=document)
+    if provenance is not None and provenance.config_fingerprint != configuration_fingerprint(
+        experiment
+    ):
+        raise ValueError(f"{path}: inconsistent saved result: config_fingerprint differs")
     return SavedBenchmarkResult(
         experiment=experiment,
         metrics=metrics,

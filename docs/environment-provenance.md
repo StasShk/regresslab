@@ -40,12 +40,14 @@ from the local CLI process (for example, a remote runner). The example adds:
 The above version and runner fields are illustrative; actual values come from
 where RegressLab runs and the installed distribution.
 
-The fingerprint hashes canonical, effective experiment settings, ignoring
-baseline/candidate URL hosts, ports, and credentials. It includes the workload
-URL scheme, path, query and execution limits. It is reproducible for the same
-configuration across hosts and insensitive to YAML key order or overrides of
-`environment` identifiers. It is not a cryptographic attestation: a digest
-cannot prove that external load generators or infrastructure were identical.
+The fingerprint uses the current workload-only algorithm.
+It excludes endpoint host, port, credentials, environment identifiers, and
+administrative safety caps (`max_requests`, `max_concurrency`, and
+`max_result_bytes`). It retains workload settings such as concurrency, timeout,
+and duration budget. On loading a result containing provenance, RegressLab
+recomputes the fingerprint from its saved experiment. A mismatch is rejected
+even without `--strict-environment`. Earlier fingerprint algorithms are not
+supported. This is a consistency check, not cryptographic authentication.
 
 ```sh
 regresslab compare baseline.json candidate.json
@@ -54,9 +56,11 @@ regresslab compare-series pairs.yaml --gate --strict-environment
 ```
 
 By default, mismatched OS, architecture, Python version, environment ID,
-configuration fingerprint, or RegressLab version produce warnings on stderr,
-not a changed benchmark verdict. Strict mode rejects any such mismatch, or
-missing provenance from either input, with exit code 2. Series comparison also
+or RegressLab version produce warnings on stderr, not a changed benchmark
+verdict. Strict mode rejects such mismatches or missing provenance, with exit
+code 2. Workload compatibility is checked field by field; fingerprints are
+verified against their own saved experiments, not compared across files.
+Series comparison also
 checks consistency across matching baseline roles and candidate roles of
 successive pairs. `git_sha` and `service_revision` can differ because the
 comparison is intended to detect regressions between software revisions.

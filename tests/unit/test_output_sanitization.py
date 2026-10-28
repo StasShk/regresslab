@@ -9,7 +9,7 @@ import pytest
 
 from regresslab import cli
 from regresslab.core.config import ExperimentSpec
-from regresslab.core.http_runner import measure_http_get
+from regresslab.core.http_runner import measure_http_request
 from regresslab.core.metrics import calculate_metrics
 from regresslab.core.models import Measurement
 from regresslab.core.output_sanitization import safe_failure_summary
@@ -25,7 +25,7 @@ def test_httpx_message_does_not_enter_failure_detail(kind: type[httpx.RequestErr
 
     async def execute() -> str | None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            result = await measure_http_get(url, client=client)
+            result = await measure_http_request(url, client=client)
         assert not result.succeeded
         return result.failure_detail
 

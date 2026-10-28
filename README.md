@@ -18,6 +18,29 @@ the final manifest is published only when the entire series completes.
 See [the collection guide](docs/run-series.md) for configuration examples,
 interruption behavior, and limitations.
 
+## Benchmark HTTP methods and JSON requests
+
+`method` defaults to `GET`. Supported methods are `GET`, `POST`, `PUT`,
+`PATCH`, and `DELETE`. Use `json_body` to send an optional JSON object:
+
+```yaml
+name: create-order
+url: http://localhost:8000/orders
+method: POST
+json_body:
+  product_id: 123
+  quantity: 2
+requests: 1000
+concurrency: 4
+```
+
+The same method and JSON body must be used for baseline and candidate;
+both are part of workload identity and the configuration fingerprint.
+The body is also sent during warmup. JSON bodies are saved in benchmark
+results, so **do not put secrets or personal data in `json_body`**.
+State-changing requests can affect later measurements; use isolated test
+data and reset the target service when necessary.
+
 ## Benchmark protected APIs
 
 Set `bearer_token_env: REGRESSLAB_API_TOKEN` in the experiment YAML and supply

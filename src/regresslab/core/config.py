@@ -1,8 +1,16 @@
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    JsonValue,
+    StringConstraints,
+    model_validator,
+)
 
 from regresslab.core.provenance import EnvironmentMetadata
 
@@ -21,6 +29,8 @@ class ExperimentSpec(BaseModel):
     bearer_token_env: str | None = Field(
         default=None, strict=True, max_length=128, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"
     )
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] = "GET"
+    json_body: dict[str, JsonValue] | None = None
     warmup_requests: int = Field(default=0, ge=0, strict=True)
     max_duration_seconds: float | None = Field(default=None, gt=0, strict=True, allow_inf_nan=False)
     max_requests: int | None = Field(default=None, gt=0, strict=True)
@@ -31,6 +41,8 @@ class ExperimentSpec(BaseModel):
 
     @model_validator(mode="after")
     def enforce_execution_budgets(self) -> Self:
+        if self.method == "GET" and self.json_body is not None:
+            raise ValueError("json_body is not supported for GET requests")
         if self.bearer_token_env is not None and (self.url.username or self.url.password):
             raise ValueError("bearer_token_env cannot be combined with URL credentials")
         # Count all outgoing requests, including those excluded from metrics.

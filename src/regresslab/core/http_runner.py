@@ -2,6 +2,7 @@ import asyncio
 from time import perf_counter
 
 import httpx
+from pydantic import JsonValue
 
 from regresslab.core.auth import bearer_headers
 from regresslab.core.config import ExperimentSpec
@@ -9,18 +10,24 @@ from regresslab.core.models import Measurement, RequestResult
 from regresslab.core.output_sanitization import safe_request_error_name
 
 
-async def measure_http_get(
+async def measure_http_request(
     url: str,
     *,
     client: httpx.AsyncClient,
+    method: str = "GET",
+    json_body: dict[str, JsonValue] | None = None,
 ) -> RequestResult:
     failure_detail: str | None = None
     started = perf_counter()
 
     try:
-        response = await client.get(url, follow_redirects=False)
+        response = await client.request(
+            method,
+            url,
+            json=json_body,
+            follow_redirects=False,
+        )
     except httpx.RequestError as exc:
-        # HTTPX messages can contain full URLs, proxy addresses and credentials.
         failure_detail = safe_request_error_name(exc)
     else:
         if not response.is_success:
@@ -71,7 +78,12 @@ async def run_experiment(spec: ExperimentSpec) -> Measurement:
                 async def worker() -> None:
                     nonlocal successful_requests, failed_requests, first_failure
                     for _ in request_numbers:
-                        result = await measure_http_get(url, client=client)
+                        result = await measure_http_request(
+                            url,
+                            client=client,
+                            method=spec.method,
+                            json_body=spec.json_body,
+                        )
                         if not measured:
                             continue  # Warmup responses and failures do not affect measurements.
                         if result.succeeded:

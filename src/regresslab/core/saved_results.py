@@ -107,6 +107,8 @@ def validate_experiment_compatibility(
         ("URL path", baseline.url.path, candidate.url.path),
         ("URL query", baseline.url.query, candidate.url.query),
         ("requests", baseline.requests, candidate.requests),
+        ("method", baseline.method, candidate.method),
+        ("json_body", baseline.json_body, candidate.json_body),
         ("concurrency", baseline.concurrency, candidate.concurrency),
         ("timeout_seconds", baseline.timeout_seconds, candidate.timeout_seconds),
         ("warmup_requests", baseline.warmup_requests, candidate.warmup_requests),

@@ -4,7 +4,7 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from regresslab.core.http_runner import measure_http_get
+from regresslab.core.http_runner import measure_http_request
 from regresslab.core.models import RequestResult
 
 URL = "http://localhost:8000/health"
@@ -19,7 +19,7 @@ def run_request(
             transport=transport,
             timeout=5.0,
         ) as client:
-            return await measure_http_get(URL, client=client)
+            return await measure_http_request(URL, client=client)
 
     return asyncio.run(run())
 

@@ -140,7 +140,6 @@ def _load_saved_series(
     *,
     require_unique_sources: bool = False,
     strict_environment: bool = False,
-    allow_legacy_metrics: bool = False,
 ) -> tuple[BenchmarkPair, ...]:
     manifest = load_series_manifest(manifest_path)
     reference_spec: ExperimentSpec | None = None
@@ -174,13 +173,6 @@ def _load_saved_series(
                     inode_owners[identity] = owner
         baseline_result = load_saved_result(baseline_path)
         candidate_result = load_saved_result(candidate_path)
-        if require_unique_sources and not allow_legacy_metrics:
-            for role, saved in (("baseline", baseline_result), ("candidate", candidate_result)):
-                if saved.measurement is None:
-                    raise ValueError(
-                        f"pair {item.id!r} {role}: statistical gate requires measurement data "
-                        "(use --allow-legacy-metrics to trust metrics-only results)"
-                    )
         baseline_spec, baseline_metrics = baseline_result.experiment, baseline_result.metrics
         candidate_spec, candidate_metrics = candidate_result.experiment, candidate_result.metrics
         try:
@@ -306,13 +298,10 @@ def _compare_saved_series(args: argparse.Namespace) -> int:
         thresholds = _thresholds_from_args(args)
         if not args.gate and (args.min_pairs is not None or args.confidence is not None):
             raise ValueError("--min-pairs and --confidence require --gate")
-        if args.allow_legacy_metrics and not args.gate:
-            raise ValueError("--allow-legacy-metrics requires --gate")
         pairs = _load_saved_series(
             args.manifest,
             require_unique_sources=args.gate,
             strict_environment=args.strict_environment,
-            allow_legacy_metrics=args.allow_legacy_metrics,
         )
         result = compare_series(pairs, thresholds)
         gate = (
@@ -498,11 +487,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     compare_series_command.add_argument(
         "--gate", action="store_true", help="Enable the statistical series-level decision"
-    )
-    compare_series_command.add_argument(
-        "--allow-legacy-metrics",
-        action="store_true",
-        help="Explicitly trust metrics-only inputs in --gate (otherwise rejected)",
     )
     compare_series_command.add_argument(
         "--min-pairs",

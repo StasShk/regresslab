@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 
 import pytest
+from fixture_measurements import synthetic_measurement
 
 from regresslab import cli
 from regresslab.core.config import ExperimentSpec
-from regresslab.core.metrics import BenchmarkMetrics
+from regresslab.core.metrics import calculate_metrics
 
 
 def save_result(
@@ -22,18 +23,14 @@ def save_result(
         spec = ExperimentSpec(
             name="api", url="http://localhost:8000/health", requests=100, concurrency=5
         )
-    values = BenchmarkMetrics(
-        p50_ms=p95,
-        p95_ms=p95,
-        p99_ms=p95,
-        successful_throughput_rps=throughput,
-        error_rate=error_rate,
-    )
+    measurement = synthetic_measurement(spec.requests, p95, throughput, error_rate)
+    values = calculate_metrics(measurement)
     path.write_text(
         json.dumps(
             {
                 "schema_version": 1,
                 "experiment": spec.model_dump(mode="json"),
+                "measurement": measurement.model_dump(mode="json"),
                 "metrics": values.model_dump(mode="json"),
             }
         ),
@@ -214,7 +211,7 @@ def test_compare_series_help(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_json_output_preserves_pairs_thresholds_and_missing_values(tmp_path: Path) -> None:
     save_result(tmp_path / "before.json")
-    save_result(tmp_path / "after.json", p95=None, throughput=70)
+    save_result(tmp_path / "after.json", p95=None, throughput=0, error_rate=1)
     manifest = write_manifest(
         tmp_path / "pairs.yaml",
         [("stable", "before.json", "before.json"), ("changed", "before.json", "after.json")],
@@ -229,9 +226,9 @@ def test_json_output_preserves_pairs_thresholds_and_missing_values(tmp_path: Pat
     changed = series["pairs"][1]["comparison"]
     assert changed["p95_latency_ms"]["candidate"] is None
     assert changed["p95_latency_ms"]["reason"]
-    assert changed["successful_throughput_rps"]["change_pct"] == -30
+    assert changed["successful_throughput_rps"]["change_pct"] == -100
     assert series["p95_latency_ms"]["inconclusive_count"] == 1
-    assert series["successful_throughput_rps"]["median_change"] == -15
+    assert series["successful_throughput_rps"]["median_change"] == -50
     assert "status" not in series
 
 

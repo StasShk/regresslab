@@ -8,7 +8,8 @@ from pydantic import ValidationError
 
 from regresslab import cli
 from regresslab.core.config import ExperimentSpec
-from regresslab.core.metrics import BenchmarkMetrics
+from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
+from regresslab.core.models import Measurement
 from regresslab.core.provenance import (
     EnvironmentMetadata,
     build_provenance,
@@ -24,16 +25,18 @@ def spec(url: str = "http://localhost:8000/orders", **fields: object) -> Experim
 
 def result(path: Path, *, env: dict[str, str] | None = None, legacy: bool = False) -> Path:
     experiment = spec(environment=env) if env is not None else spec()
+    measurement = Measurement(
+        latencies_ms=(5.0,) * experiment.requests,
+        request_count=experiment.requests,
+        successful_requests=experiment.requests,
+        failed_requests=0,
+        elapsed_seconds=experiment.requests / 10,
+    )
     record = {
         "schema_version": 1,
         "experiment": experiment.model_dump(mode="json"),
-        "metrics": BenchmarkMetrics(
-            p50_ms=5,
-            p95_ms=5,
-            p99_ms=5,
-            successful_throughput_rps=10,
-            error_rate=0,
-        ).model_dump(mode="json"),
+        "measurement": measurement.model_dump(mode="json"),
+        "metrics": calculate_metrics(measurement).model_dump(mode="json"),
     }
     if not legacy:
         record.update(build_provenance(experiment).model_dump(mode="json"))

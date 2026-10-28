@@ -137,6 +137,13 @@ def test_provenance_validation_error_does_not_include_untrusted_values(tmp_path:
             "successful_throughput_rps": 1.0,
             "error_rate": 0.0,
         },
+        "measurement": {
+            "latencies_ms": [1.0],
+            "request_count": 1,
+            "successful_requests": 1,
+            "failed_requests": 0,
+            "elapsed_seconds": 1.0,
+        },
         **build_provenance(specimen).model_dump(mode="json"),
     }
     record["environment"]["environment_id"] = SECRET + ".example.com"

@@ -1,31 +1,14 @@
-# Saved result integrity and legacy compatibility
+# Saved result integrity
 
-`regresslab compare` and `regresslab compare-series` use the same saved-result
-loader. If a schema v1 JSON contains a `measurement`, the loader validates
-its counters, nonnegative and finite latencies, elapsed time, and consistency
-with `experiment.requests`. It recomputes nearest-rank p50, p95, p99,
-successful throughput, and error rate using the same implementation as `run`.
-Every saved metric, including whether it is `null`, must match the recomputed
-value within a relative tolerance of `1e-9` and absolute tolerance of `1e-12`.
-Disagreements or a malformed `measurement` are input errors (exit code `2`),
-not PASS or INCONCLUSIVE. Non-finite values are always invalid.
+Both `compare` and `compare-series` require a saved benchmark JSON with
+`experiment`, `measurement` and `metrics` (schema version 1). Missing or
+invalid measurements are rejected (exit code `2`), including for descriptive
+comparisons. The statistical gate does not accept metrics-only inputs.
 
-Older `schema_version: 1` results with **no `measurement` key** remain usable
-with `compare` and descriptive `compare-series`, but their metrics cannot be
-independently verified. Their absence of raw data is not treated as corruption.
-A `measurement: null` or invalid object does **not** count as legacy.
+The loader validates measurement counters, nonnegative finite latencies,
+positive elapsed time, and consistency with `experiment.requests`.
+It recalculates p50, p95 and p99 (nearest-rank), successful throughput and
+error rate. Saved metric values must match to relative tolerance `1e-9`
+and absolute tolerance `1e-12`. Invalid data cannot produce PASS.
 
-Statistical `compare-series --gate` requires a valid measurement in **every**
-file in the manifest, even if the file has environment provenance. To opt into
-trusting old metrics-only files explicitly:
-
-```sh
-regresslab compare-series pairs.yaml --gate --allow-legacy-metrics
-```
-
-`--allow-legacy-metrics` cannot be used without `--gate`. It only allows files
-whose measurement key is absent; it never suppresses validation of measurements
-that are present or relaxes workload, provenance, or independent-file checks.
-This policy does **not** provide authenticity or signatures: a consistently
-rewritten file can still be forged. The aim is to catch internally inconsistent
-or accidentally damaged saved results before using them for CI decisions.
+This detects accidental corruption, not maliciously forged consistent files.

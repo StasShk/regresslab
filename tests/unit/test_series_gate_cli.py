@@ -4,15 +4,15 @@ import json
 from pathlib import Path
 
 import pytest
+from fixture_measurements import synthetic_measurement
 
 from regresslab import cli
 from regresslab.core.config import ExperimentSpec
-from regresslab.core.metrics import BenchmarkMetrics
+from regresslab.core.metrics import calculate_metrics
 
 
 def gate_cli(argv: list[str]) -> int:
-    """Older fixture files are metrics-only; explicitly permit them for gate tests."""
-    return cli.main([*argv, "--allow-legacy-metrics"] if "--gate" in argv else argv)
+    return cli.main(argv)
 
 
 def save_result(
@@ -25,18 +25,16 @@ def save_result(
     experiment = ExperimentSpec(
         name="api", url="http://localhost:8000/health", requests=100, concurrency=5
     )
-    metrics = BenchmarkMetrics(
-        p50_ms=p95,
-        p95_ms=p95,
-        p99_ms=p95,
-        successful_throughput_rps=throughput,
-        error_rate=error_rate,
-    )
+    if p95 is None or throughput == 0:
+        p95, throughput, error_rate = None, 0.0, 1.0
+    measurement = synthetic_measurement(experiment.requests, p95, throughput, error_rate)
+    metrics = calculate_metrics(measurement)
     path.write_text(
         json.dumps(
             {
                 "schema_version": 1,
                 "experiment": experiment.model_dump(mode="json"),
+                "measurement": measurement.model_dump(mode="json"),
                 "metrics": metrics.model_dump(mode="json"),
             }
         ),
@@ -108,9 +106,9 @@ def test_gate_undefined_throughput_is_inconclusive(tmp_path: Path) -> None:
     assert gate_cli(["compare-series", str(manifest), "--gate"]) == 3
 
 
-def test_gate_missing_p95_is_inconclusive(tmp_path: Path) -> None:
+def test_gate_missing_p95_with_clear_other_regressions(tmp_path: Path) -> None:
     manifest = _series(tmp_path, p95=None)
-    assert gate_cli(["compare-series", str(manifest), "--gate"]) == 3
+    assert gate_cli(["compare-series", str(manifest), "--gate"]) == 1
 
 
 def test_gate_rejects_reusing_baseline_across_pairs(

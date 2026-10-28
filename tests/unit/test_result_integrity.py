@@ -65,7 +65,7 @@ def test_corruption_is_rejected(
 
 
 @pytest.mark.parametrize("invalid", [None, {}, [], "bad"])
-def test_present_but_invalid_measurement_is_not_legacy(tmp_path: Path, invalid: object) -> None:
+def test_invalid_measurement_is_rejected(tmp_path: Path, invalid: object) -> None:
     document = _record()
     document["measurement"] = invalid
     with pytest.raises((ValueError, TypeError), match="invalid measurement"):
@@ -81,17 +81,11 @@ def test_consistent_counters_must_still_match_experiment(tmp_path: Path) -> None
         load_saved_result(_write(tmp_path / "wrong-workload.json", document))
 
 
-def test_valid_legacy_and_complete_results_still_load(tmp_path: Path) -> None:
+def test_measurement_is_required(tmp_path: Path) -> None:
     document = _record()
-    complete = load_saved_result(_write(tmp_path / "complete.json", document))
-    assert complete.measurement is not None
     document.pop("measurement")
-    legacy = load_saved_result(_write(tmp_path / "legacy.json", document))
-    assert legacy.measurement is None
-    assert legacy.metrics == complete.metrics
-    assert (
-        cli.main(["compare", str(tmp_path / "legacy.json"), str(tmp_path / "complete.json")]) == 0
-    )
+    with pytest.raises(ValueError, match="missing measurement"):
+        load_saved_result(_write(tmp_path / "missing.json", document))
 
 
 def test_tolerance_accepts_serialization_rounding_not_changes(tmp_path: Path) -> None:
@@ -121,29 +115,20 @@ def test_corrupt_candidate_prevents_pass_and_export(tmp_path: Path) -> None:
     output = tmp_path / "report.json"
     assert cli.main(["compare-series", str(manifest), "--output", str(output)]) == 2
     assert cli.main(["compare-series", str(manifest), "--gate"]) == 2
-    assert cli.main(["compare-series", str(manifest), "--gate", "--allow-legacy-metrics"]) == 2
     assert not output.exists()
 
 
-def test_gate_rejects_legacy_by_default_and_allows_explicit_override(tmp_path: Path) -> None:
+def test_gate_rejects_missing_measurements(tmp_path: Path) -> None:
     manifest = tmp_path / "pairs.yaml"
-    lines = ["pairs:"]
-    for index in range(8):
-        names = [f"before-{index}.json", f"after-{index}.json"]
-        for name in names:
-            data = _record()
-            data.pop("measurement")
-            _write(tmp_path / name, data)
-        lines += [
-            f"  - id: pair-{index}",
-            f"    baseline: {names[0]}",
-            f"    candidate: {names[1]}",
-        ]
-    manifest.write_text("\n".join(lines) + "\n")
-    assert cli.main(["compare-series", str(manifest)]) == 0
+    before = _record()
+    before.pop("measurement")
+    _write(tmp_path / "before.json", before)
+    _write(tmp_path / "after.json", _record())
+    manifest.write_text(
+        "pairs:\n  - id: one\n    baseline: before.json\n    candidate: after.json\n"
+    )
+    assert cli.main(["compare-series", str(manifest)]) == 2
     assert cli.main(["compare-series", str(manifest), "--gate"]) == 2
-    assert cli.main(["compare-series", str(manifest), "--gate", "--allow-legacy-metrics"]) == 0
-    assert cli.main(["compare-series", str(manifest), "--allow-legacy-metrics"]) == 2
 
 
 def test_gate_accepts_valid_complete_samples(tmp_path: Path) -> None:

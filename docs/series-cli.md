@@ -52,10 +52,8 @@ throughput changes are percentages.
 Compatibility is checked both **within each pair** and **across all pairs**,
 using the same workload checks as the existing `compare` command. Different
 hosts and ports are permitted, while the experiment name, URL scheme/path/query,
-request count, concurrency, and `timeout_seconds` must match. Older saved
-results without `timeout_seconds` use the default of `5.0` seconds. You must
-still ensure comparable runtime environments and meaningful baseline/candidate
-pairing yourself. When provenance is present, mismatched runner and configuration
+request count, concurrency, and `timeout_seconds` must match. You must still ensure comparable runtime environments and meaningful
+baseline/candidate pairing yourself. When provenance is present, mismatched runner and configuration
 metadata produces warnings. `--strict-environment` rejects missing or
 inconsistent testbed provenance across pairs (exit `2`); see the
 [provenance guide](environment-provenance.md). Revision IDs may differ.
@@ -87,12 +85,9 @@ caveats.
 
 ## Optional statistical gate
 
-Saved JSON files containing `measurement` are validated by recomputing all
-metrics before comparisons. Metrics-only legacy results remain usable for
-reports, but the statistical gate rejects them by default. Add
-`--allow-legacy-metrics` with `--gate` only when you explicitly trust these
-unverifiable older files. Malformed or inconsistent measurements always fail
-with exit code `2`, even with this override. See
+All saved results must include measurements; the loader recomputes metrics
+before descriptive and statistical comparisons. Missing, malformed, or
+inconsistent measurements fail with exit code `2`. See
 [result integrity](result-integrity.md).
 
 `compare-series` remains descriptive unless `--gate` is supplied. To turn the

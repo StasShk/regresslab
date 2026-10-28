@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 
 import pytest
+from fixture_measurements import synthetic_measurement
 
 from regresslab import cli
 from regresslab.core.config import ExperimentSpec
-from regresslab.core.metrics import BenchmarkMetrics, calculate_metrics
+from regresslab.core.metrics import calculate_metrics
 from regresslab.core.models import Measurement
 
 
@@ -19,22 +20,18 @@ def write_result(
     error_rate: float | None = 0.02,
     experiment: ExperimentSpec | None = None,
 ) -> Path:
-    values = BenchmarkMetrics(
-        p50_ms=p95,
-        p95_ms=p95,
-        p99_ms=p95,
-        successful_throughput_rps=throughput,
-        error_rate=error_rate,
-    )
     if experiment is None:
         experiment = ExperimentSpec(
             name="sample", url="http://localhost:8000/health", requests=100, concurrency=5
         )
+    measurement = synthetic_measurement(experiment.requests, p95, throughput, error_rate)
+    values = calculate_metrics(measurement)
     path.write_text(
         json.dumps(
             {
                 "schema_version": 1,
                 "experiment": experiment.model_dump(mode="json"),
+                "measurement": measurement.model_dump(mode="json"),
                 "metrics": values.model_dump(mode="json"),
             }
         ),
@@ -206,8 +203,8 @@ def test_exact_threshold_with_rounding_passes(
 def test_clear_regression_takes_precedence_over_missing_p95(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    baseline = write_result(tmp_path / "baseline.json", p95=None)
-    candidate = write_result(tmp_path / "candidate.json", p95=None, throughput=80)
+    baseline = write_result(tmp_path / "baseline.json")
+    candidate = write_result(tmp_path / "candidate.json", p95=None, throughput=0, error_rate=1)
 
     assert compare_files(baseline, candidate) == 1
     output = capsys.readouterr().out
@@ -237,7 +234,11 @@ def test_rejects_incompatible_experiments(
     )
     candidate_spec = ExperimentSpec.model_validate({**spec.model_dump(mode="json"), **changed})
     baseline = write_result(tmp_path / "baseline.json", experiment=spec)
-    candidate = write_result(tmp_path / "candidate.json", experiment=candidate_spec)
+    candidate = write_result(
+        tmp_path / "candidate.json",
+        experiment=candidate_spec,
+        error_rate=0 if candidate_spec.requests != spec.requests else 0.02,
+    )
 
     assert compare_files(baseline, candidate) == 2
     captured = capsys.readouterr()

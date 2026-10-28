@@ -7,6 +7,7 @@ import pytest
 
 from regresslab import cli
 from regresslab.core.config import ExperimentSpec
+from regresslab.core.models import Measurement
 from regresslab.core.provenance import build_provenance, configuration_fingerprint
 from regresslab.core.result_loader import load_saved_result
 
@@ -27,9 +28,17 @@ def _spec(**overrides: object) -> ExperimentSpec:
 
 
 def _record(spec: ExperimentSpec) -> dict[str, object]:
+    measurement = Measurement(
+        latencies_ms=(5.0,) * spec.requests,
+        request_count=spec.requests,
+        successful_requests=spec.requests,
+        failed_requests=0,
+        elapsed_seconds=spec.requests / 10,
+    )
     return {
         "schema_version": 1,
         "experiment": spec.model_dump(mode="json"),
+        "measurement": measurement.model_dump(mode="json"),
         "metrics": {
             "p50_ms": 5.0,
             "p95_ms": 5.0,

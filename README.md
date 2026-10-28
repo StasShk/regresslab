@@ -97,9 +97,8 @@ examples, privacy limits, and compatibility behavior.
 
 ## Compare saved benchmark results
 
-Saved measurements are checked against recomputed metrics before comparisons.
-Metrics-only legacy JSON is still readable for reports, but `--gate` needs
-`--allow-legacy-metrics` to explicitly trust it. See
+Saved results must include measurements. The loader checks counters and
+recomputes metrics before comparisons. See
 [the result integrity guide](docs/result-integrity.md) for details.
 
 Save benchmark runs with `regresslab run experiment.yaml --output run.json`,

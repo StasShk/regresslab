@@ -19,6 +19,13 @@ def write_result(path: Path, timeout: float | None) -> None:
             {
                 "schema_version": 1,
                 "experiment": experiment,
+                "measurement": {
+                    "latencies_ms": [10.0, 10.0],
+                    "request_count": 2,
+                    "successful_requests": 2,
+                    "failed_requests": 0,
+                    "elapsed_seconds": 0.2,
+                },
                 "metrics": {
                     "p50_ms": 10.0,
                     "p95_ms": 10.0,

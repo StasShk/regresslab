@@ -1,7 +1,6 @@
 """Single trusted reader for saved benchmark results.
 
-Metrics-only schema v1 records are supported for descriptive comparisons. When
-raw measurements are available, derived metrics must match the saved values.
+Saved measurements are required and their derived metrics must be consistent.
 """
 
 import json
@@ -39,7 +38,7 @@ _METRIC_FIELDS = (
 class SavedBenchmarkResult:
     experiment: ExperimentSpec
     metrics: BenchmarkMetrics
-    measurement: Measurement | None
+    measurement: Measurement
     provenance: ResultProvenance | None
 
 
@@ -87,8 +86,7 @@ def _verify_derived_metrics(
 def load_saved_result(path: Path) -> SavedBenchmarkResult:
     """Read once, validate schema, counters, derived metrics, and provenance.
 
-    A missing measurement means a legacy metrics-only result. A present but
-    invalid/null measurement is corruption, never an implicit legacy fallback.
+    Missing, null, or invalid measurement data is rejected.
     """
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -113,16 +111,16 @@ def load_saved_result(path: Path) -> SavedBenchmarkResult:
     except ValidationError as exc:
         raise ValueError(f"{path}: invalid experiment: {safe_validation_details(exc)}") from exc
 
-    measurement: Measurement | None = None
-    if "measurement" in document:
-        measurement = _validate_measurement(path, document["measurement"])
-        if measurement.request_count != experiment.requests:
-            raise ValueError(
-                f"{path}: inconsistent saved result: measurement.request_count "
-                f"({measurement.request_count}) differs from experiment.requests "
-                f"({experiment.requests})"
-            )
-        _verify_derived_metrics(path, measurement, metrics)
+    if "measurement" not in document:
+        raise ValueError(f"{path}: missing measurement")
+    measurement = _validate_measurement(path, document["measurement"])
+    if measurement.request_count != experiment.requests:
+        raise ValueError(
+            f"{path}: inconsistent saved result: measurement.request_count "
+            f"({measurement.request_count}) differs from experiment.requests "
+            f"({experiment.requests})"
+        )
+    _verify_derived_metrics(path, measurement, metrics)
 
     provenance = load_provenance(path, document=document)
     if provenance is not None and provenance.config_fingerprint != configuration_fingerprint(

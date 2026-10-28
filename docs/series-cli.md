@@ -67,10 +67,11 @@ individual reasons and verdicts are preserved. There is no series-wide status.
 The JSON can be retained as a CI artifact or read by other programs.
 
 The output path is relative to the current working directory. Its parent must
-exist, and an existing file is never overwritten. This also prevents accidentally
-replacing the manifest or an input result. Choose a new output filename for a
-subsequent invocation. The terminal report is printed only after a requested
-JSON export succeeds.
+exist, and an existing file is never overwritten. The report is written privately
+and published atomically only after completion; concurrent creation cannot
+overwrite another file. The output filesystem must support hard links. Choose a
+new output filename for a subsequent invocation. The terminal report is printed
+only after the requested JSON export succeeds.
 
 - `0`: the descriptive report was generated (even if individual pairs regressed).
 - `2`: invalid manifest, missing/corrupt result file, incompatible experiments,

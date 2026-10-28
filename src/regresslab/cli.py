@@ -319,10 +319,9 @@ def _compare_saved_series(args: argparse.Namespace) -> int:
             if gate is not None:
                 document["gate"] = gate.model_dump(mode="json")
             serialized = json.dumps(document, indent=2, allow_nan=False) + "\n"
-            # Exclusive creation also protects manifests and input results from
-            # accidental overwrite, including aliases through symbolic links.
-            with args.output.open("x", encoding="utf-8") as stream:
-                stream.write(serialized)
+            # Publish only a complete report, without overwriting a competing writer.
+            with new_result_file(args.output) as temporary:
+                temporary.write_text(serialized, encoding="utf-8")
     except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
         print(f"regresslab: {exc}", file=sys.stderr)
         return 2

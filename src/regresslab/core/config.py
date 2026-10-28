@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
@@ -43,6 +44,11 @@ class ExperimentSpec(BaseModel):
     def enforce_execution_budgets(self) -> Self:
         if self.method == "GET" and self.json_body is not None:
             raise ValueError("json_body is not supported for GET requests")
+        if self.json_body is not None:
+            try:
+                json.dumps(self.json_body, allow_nan=False)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("json_body must contain only finite JSON values") from None
         if self.bearer_token_env is not None and (self.url.username or self.url.password):
             raise ValueError("bearer_token_env cannot be combined with URL credentials")
         # Count all outgoing requests, including those excluded from metrics.

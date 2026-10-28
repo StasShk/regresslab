@@ -36,8 +36,9 @@ concurrency: 4
 
 The same method and JSON body must be used for baseline and candidate;
 both are part of workload identity and the configuration fingerprint.
-The body is also sent during warmup. JSON bodies are saved in benchmark
-results, so **do not put secrets or personal data in `json_body`**.
+The body is also sent during warmup. Non-finite JSON values such as `NaN`
+and `Infinity` are rejected before requests start. JSON bodies are saved in
+benchmark results, so **do not put secrets or personal data in `json_body`**.
 State-changing requests can affect later measurements; use isolated test
 data and reset the target service when necessary.
 

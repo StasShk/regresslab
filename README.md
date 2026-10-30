@@ -127,3 +127,10 @@ For a CI decision over repeated matched pairs, add `--gate` (requires at least
 `1=REGRESSION`, `2=ERROR`, or `3=INCONCLUSIVE` and adds a `gate` object to the
 JSON output. The ordinary descriptive `compare-series` stays unchanged.
 See [statistical gate details](docs/series-cli.md#optional-statistical-gate).
+
+## Characterize the statistical gate
+
+The optional [gate characterization experiment](docs/gate-characterization.md)
+uses controlled local HTTP workloads to measure PASS, REGRESSION, and
+INCONCLUSIVE rates for A/A and 5%/10%/25% injected slowdowns. Its full matrix
+is run manually, not in CI.
